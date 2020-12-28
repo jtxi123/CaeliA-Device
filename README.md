@@ -45,12 +45,18 @@ CaeliA device is conceived as a device used to publish into a cloud platform. Th
 
 ![](./CaeliA_Device/Images/System.jpg)
 
+Data on the device can be visualized thoug dashboards such as:
+
+
+![](./CaeliA_Device/Images/DeviceDashborad.jpg)
+
 The current platform used is ThingsBoard which allows also also to issue RPC commands that the device can interpret. Curtrently the following
-* RPC calls over MQTT are implemented:
-    - setOffset
-    - calibration
-    - userMessage
-    - setLedState
-    - setWarnings
+RPC calls over MQTT are implemented:
+
+    * setOffset: Add offset to CO2 reading
+    * calibration: Zero calibration of  device (400 ppm)
+    * userMessage: Display a message for the user
+    * setLedState: Force LEDs on(2)/off(0)/warning_level(1)
+    * setWarnings: Define warning and danger levels
 
 The cloud platform can be used to configure dasboards to present show the device data
