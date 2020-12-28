@@ -30,3 +30,9 @@ in the flash SPFFS file system and will be recovered in subsequent reboots.
 
 The device uses the [fota library](https://github.com/chrisjoyce911/esp32FOTA) library for over the air updates. In will regularly check for firmware updates by checking current firmware version against the version recorded in the sw server.
 In the case there is a new version it will download and install it unattended.
+
+Schematics of the device:
+![](./CaeliA_Device/Images/Esquema.jpg)
+
+and the PCB
+![](./CaeliA_Device/Images/CaeliA_pcb.jpg)
