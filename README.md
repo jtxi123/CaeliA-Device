@@ -38,3 +38,16 @@ In the case there is a new version it will download and install it unattended.
 # and the PCB
 
 ![](./CaeliA_Device/Images/CaeliA_pcb.jpg)
+
+# MQTT Cloud platform
+
+CaeliA device is conceived as a device used to publish into a cloud platform. The cloud platform can also be used to manage the device.
+
+The current platform used is ThingsBoard which allows also also to issue RPC commands that the device can interpret. Curtrently the following
+* RPC calls over MQTT are implemented:
+    - setOffset
+    - calibration
+    - userMessage
+    - setLedState
+    - setWarnings
+
