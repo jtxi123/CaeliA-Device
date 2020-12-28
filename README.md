@@ -1,4 +1,5 @@
 # CaeliA-Device
+![](./CaeliA_Device/Images/Dispositivo%20CaeliA.jpg)
 
 This project describes the design of a CO2 metering for deployment in schools and other public and private places.
 
