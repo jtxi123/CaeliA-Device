@@ -15,7 +15,7 @@ The device was built using an ESP32 nodemcu and utilizes two sensors:
 
 The device needs a wifi hotspot to connect to Internet and publish the readings.
 
-In order to connect, the device uses the [WifiManager library](https://github.com/zhouhan0126/WIFIMANAGER-ESP32) to request from the user the connection parameters. 
+In order to connect, the device uses the [WifiManager library](https://github.com/tzapu/WiFiManager) to request from the user the connection parameters. 
 
 * On first instalation, the device will start a captive portal AP and request the following:
     - WiFi SSID
