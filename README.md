@@ -43,6 +43,8 @@ In the case there is a new version it will download and install it unattended.
 
 CaeliA device is conceived as a device used to publish into a cloud platform. The cloud platform can also be used to manage the device.
 
+![](./CaeliA_Device/Images/System.jpg)
+
 The current platform used is ThingsBoard which allows also also to issue RPC commands that the device can interpret. Curtrently the following
 * RPC calls over MQTT are implemented:
     - setOffset
