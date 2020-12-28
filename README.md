@@ -23,7 +23,7 @@ In order to connect, the device uses the [WifiManager library](https://github.co
     - MQTT broker address
     - MQTT broker port
     - MQTT topic
-    - URL for to check for software updates.
+    - URL to check for software updates.
 * After parameters are set, the device will connect automatically without user intervention. Parameters are persisted
 in the flash SPFFS file system and will be recovered in subsequent reboots.
 * The user can force the device to raise the captive portal upon powerup to change any of the existing parameters.
@@ -53,10 +53,10 @@ Data on the device can be visualized thoug dashboards such as:
 The current platform used is ThingsBoard which allows also also to issue RPC commands that the device can interpret. Curtrently the following
 RPC calls over MQTT are implemented:
 
-    * setOffset: Add offset to CO2 reading
-    * calibration: Zero calibration of  device (400 ppm)
-    * userMessage: Display a message for the user
-    * setLedState: Force LEDs on(2)/off(0)/warning_level(1)
-    * setWarnings: Define warning and danger levels
+    setOffset: Add offset to CO2 reading
+    calibration: Zero calibration of  device (400 ppm)
+    userMessage: Display a message for the user
+    setLedState: Force LEDs on(2)/off(0)/warning_level(1)
+    setWarnings: Define warning and danger levels
 
-The cloud platform can be used to configure dasboards to present show the device data
+
