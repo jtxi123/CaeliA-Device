@@ -51,3 +51,4 @@ The current platform used is ThingsBoard which allows also also to issue RPC com
     - setLedState
     - setWarnings
 
+The cloud platform can be used to configure dasboards to present show the device data
