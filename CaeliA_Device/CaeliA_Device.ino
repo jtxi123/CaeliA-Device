@@ -1,5 +1,5 @@
 #include <FS.h>
-#include "SPIFFS.h"
+#include <SPIFFS.h>
 #include <esp32fota.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -188,6 +188,8 @@ ThingsBoard tb(espClient);
 // the Wifi radio's status
 int wifiStatus = WL_IDLE_STATUS;
 
+DynamicJsonDocument configJson(1024); //json document to store config parameters
+//StaticJsonDocument<200> configJson; //json document to store config parameters
 #define RED 15
 #define YELLOW 2
 #define GREEN 0
@@ -394,8 +396,8 @@ void measTask(void *pvParameters) {
     if (tasksEnabled) {
       display.clearDisplay();
       readMeasurement(new_measurement);
-      publishMeasurement(new_measurement);
       displayMeasurement(new_measurement);
+      publishMeasurement(new_measurement);
       showLeds(new_measurement);
       calibration();
     }
@@ -433,9 +435,10 @@ void showLeds(MEASUREMENT* new_measurement)
 }
 void calibration() //Calibrate if needed
 {
+#ifdef MHZ19B
   //Check if a calibration is needed
   if (calibrationFlag) {
-    myMHZ19.calibrateZero(RANGE_Z19);
+    myMHZ19.calibrate();
     myMHZ19.autoCalibration(true);
     display.setTextSize(2);
     display.clearDisplay();
@@ -451,6 +454,7 @@ void calibration() //Calibrate if needed
     co2Offset = 0;
     calibrationFlag = false;
   }
+#endif
 }
 
 //  Reads data from sensors
@@ -486,24 +490,6 @@ void readMeasurement(MEASUREMENT * measurements)
 # ifdef DEBUG
   Serial.println("CO2 (ppm) : " + String(co2_ppm) + " Temperature(CO2) (C) : " + String(co2_t));
 # endif
-  //Check if a calibration is needed
-  if (calibrationFlag) {
-    myMHZ19.calibrateZero(RANGE_Z19);
-    myMHZ19.autoCalibration(true);
-    display.setTextSize(2);
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Calibration");
-    display.println("in progress");
-    display.setTextSize(1);
-    display.display();
-
-    // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
-    setRange(RANGE_Z19);
-    //reset offset and flag
-    co2Offset = 0;
-    calibrationFlag = false;
-  }
 
 #endif
 #ifdef DHT
@@ -597,6 +583,7 @@ void displayMeasurement(MEASUREMENT * mesurements)
 #ifdef DISPLAY
   int lines = DISPLAY_LINES - 1; // do not overflow display
   char line[20];
+  display.clearDisplay();
   display.setTextSize(2);
   lines /= 2;
   if (MAX_KEYS < lines) lines = MAX_KEYS;
@@ -696,7 +683,6 @@ void saveConfigCallback () {
   Serial.println("Should save config");
   shouldSaveConfig = true;
 }
-DynamicJsonDocument configJson(1024); //json document to store config parameters
 
 // obtain unique token for ESP32
 void getToken()
@@ -761,6 +747,10 @@ bool saveConfigFile(JsonDocument& doc)
 WiFiManager wifiManager;
 void InitWiFi()
 {
+  char mqtt_server[40];
+  char mqtt_port[8];
+  char telemetry_topic[40];
+  char sw_server[40];
   getToken();
   //WiFiManager
 
@@ -784,7 +774,8 @@ void InitWiFi()
   delay(5000); //wait 5 seconds to allow user to press the button
   display.clearDisplay();
   display.setCursor(0, 0);
-  display.println("Start CaeliaAp");
+  //display.println("Start");
+  display.println("CaeliaAp");
   display.display();
   display.setTextSize(1);
 #endif
@@ -798,27 +789,27 @@ void InitWiFi()
   readConfigFile(configJson);
 
   wifiManager.setConfigPortalTimeout(180); //set 180s timeout for web portal
-  WiFiManagerParameter mqttServer("Server name", "mqtt server", configJson["mqtt_server"], 40);
+  WiFiManagerParameter mqttServer("Server_name", "mqtt_server", (const char*)configJson["mqtt_server"], 40);
   wifiManager.addParameter(&mqttServer);
-  WiFiManagerParameter mqttPort("Port number", "mqtt port", configJson["mqtt_port"], 6);
+  WiFiManagerParameter mqttPort("Port_number", "mqtt_port", (const char*)configJson["mqtt_port"], 6);
   wifiManager.addParameter(&mqttPort);
-  WiFiManagerParameter telemetryTopic("Telemetry", "Telemetry topic", configJson["telemetry_topic"], 40);
+  WiFiManagerParameter telemetryTopic("Telemetry", "Telemetry_topic", (const char*)configJson["telemetry_topic"], 40);
   wifiManager.addParameter(&telemetryTopic);
-  WiFiManagerParameter swServer("Update", "Update_Server", configJson["sw_server"], 40);
+  WiFiManagerParameter swServer("Update", "Update_Server", (const char*)configJson["sw_server"], 40);
   wifiManager.addParameter(&swServer);
 
+  Serial.println("Starting portal if needed");
+  display.println();
+  display.println("Please connect to:");
+  display.println(token);
+  display.display();
   if (digitalRead(PIN_CONFIGURE))
   {
-    Serial.println("Starting portal if needed");
     wifiManager.autoConnect(token);
   }
   else
   {
     Serial.println("Forced configuration");
-    display.println();
-    display.println("Please connect to:");
-    display.println(token);
-    display.display();
     SPIFFS.format(); //clean FS
     wifiManager.startConfigPortal(token); //Forced ap (user action)
   }
@@ -826,12 +817,15 @@ void InitWiFi()
 
   //save the custom parameters to FS
   if (shouldSaveConfig) {
+    strcpy(mqtt_server, mqttServer.getValue());
+    strcpy(mqtt_port, mqttPort.getValue());
+    strcpy(telemetry_topic, telemetryTopic.getValue());
+    strcpy(sw_server, swServer.getValue());
 
-    configJson["mqtt_server"] = mqttServer.getValue();
-    configJson["mqtt_port"] = mqttPort.getValue();
-    configJson["telemetry_topic"] = telemetryTopic.getValue();
-    configJson["sw_server"] = swServer.getValue();
-
+    configJson["mqtt_server"] = mqtt_server;
+    configJson["mqtt_port"] = mqtt_port;
+    configJson["telemetry_topic"] = telemetry_topic;
+    configJson["sw_server"] = sw_server;
     saveConfigFile(configJson);
   }
 
@@ -849,8 +843,9 @@ void InitWiFi()
   Serial.println("connected...yeey : )");
 #endif
   //Save the credentials just in case we need to reconnect
-  strcpy(ap_ssid, wifiManager.getSSID().c_str());
-  strcpy(ap_pass, wifiManager.getPassword().c_str());
+  strcpy(ap_ssid, wifiManager.getWiFiSSID().c_str());
+  strcpy(ap_pass, wifiManager.getWiFiPass().c_str());
+  //return configJ;
 }
 
 //Check wifi connection. If WIFI connection is down try to reconnect
@@ -871,10 +866,8 @@ bool checkConnection()
     WiFi.begin(ap_ssid, ap_pass);
     success = false;
   } else  {
-#ifdef DISPLAY
     display.drawBitmap(display.width() - 16, 0, wifi1_icon16x16, 16, 16, 1);
     display.display();
-#endif
     // Reconnect to ThingsBoard, if needed
 
 #ifdef DEBUG
@@ -890,12 +883,10 @@ bool checkConnection()
 #endif
       if (!tb.connect(configJson["mqtt_server"], token)) {
 #ifdef DEBUG
-        Serial.println("Failed to connect to ThingsBoard");
+        Serial.println("Failed to connect to ThingsBoard ");
 #endif
-#ifdef DISPLAY
         display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
         display.display();
-#endif
         success = false;
       }
 #ifdef RPC
@@ -963,11 +954,10 @@ void setup()
   display.setTextSize(1);             // Normal 1:1 pixel scale
 #endif
   InitWiFi();
+
   //ennable uploading over the air
   //register the server where to check if firmware needs updating
-
   esp32FOTA.checkURL = String((const char*)configJson["sw_server"]);
-
   // initialize control pins for leds
   for (int i = 0; i < sizeof(leds_control); i++) pinMode(leds_control[i], OUTPUT);
 
@@ -978,7 +968,7 @@ void setup()
   delay(5000);                   // Wait for sensor to stabilize
   myMHZ19.autoCalibration(true);
   setRange(RANGE_Z19);                // set Range 5000 using a function, see below (disabled as part of calibration)
-#ifndef DEBUG
+#ifdef DEBUG
   //  Primary Information block
   Serial.println("ProgrammID : ESP32_Z19 ");
   myMHZ19.getVersion(myVersion);
@@ -1043,6 +1033,7 @@ void loop() {
 #ifdef RPC
   //check for incomming messages
   tb.loop();
+  delay(1000);
 #endif
   yield();
 }
