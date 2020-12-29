@@ -1,6 +1,6 @@
 # Note on libraries
 
-##The following libraries have bee used:
+## The following libraries have bee used:
 
 * MH-Z19 v 1.5.3 by Jonathan Dempsey:
 * WifiManager v2.03 by tzapu
