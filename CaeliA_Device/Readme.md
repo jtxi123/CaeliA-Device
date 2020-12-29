@@ -1,4 +1,4 @@
-# Note o libraries
+# Note on libraries
 
 The following libraries have bee used:
 
