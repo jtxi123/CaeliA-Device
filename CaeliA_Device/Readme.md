@@ -1,10 +1,14 @@
 # Note o libraries
 
-An issue arrived with a coliding redefinition of HTTP_HEAD in the HTTPClient and WiFiManager libraries.
+The following libraries have bee used:
 
-The issue was solved by editing files WiFiManager.cpp and WiFiManager.h from the WiFi manager library,
-substituting the HTTP_HEAD by HTTP_HEADER
+* MH-Z19 v 1.5.3 by Jonathan Dempsey:
+* WifiManager v2.03 by tzapu
+* DHT Sensor Library by Adafruit v1.4.1
+* Adafruit SSD1306 Library by Adafruit v2.4.1
+* esp32FOTA Library by Chris Joice v 0.1.2
+* Thingsboard Library by Thingsboard Team v 0.4.0
+* ArduinoHttpClient Library by Arduino v 0.4.0
+* Adafruit BME280 Library by Adafruit v 2.1.2
 
-    const char HTTP_HEAD[] PROGMEM
-    by
-    const char HTTP_HEADER[] PROGMEM
+All libraries can be located through arduino library manager.
