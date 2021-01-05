@@ -29,7 +29,7 @@ char ap_pass[40]; //to store the wifi ap password
 
 #define BAUDRATE 9600           // Device to CO2 sensor Serial baudrate (should not be changed)
 #define RX_PIN 19               // Rx pin which the CO2 Sensor Tx pin is attached
-#define TX_PIN 18               // Tx pin which the CO2 Sensor Rx pin is attached 
+#define TX_PIN 18               // Tx pin which the CO2 Sensor Rx pin is attached
 
 #ifdef MHZ19_CO2
 #include "MHZ19.h"
