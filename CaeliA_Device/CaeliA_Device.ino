@@ -5,14 +5,10 @@
 #include <HTTPClient.h>
 #include <ThingsBoard.h>    // ThingsBoard SDK
 
-//needed for library to autoconnect
+//needed for library for autoconnect
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <WiFiManager.h>
-
-
-
-//#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 
 //SW type and version needed to check for SW updates
 #define SW_TYPE "CaeliA_esp32_co2"
@@ -25,21 +21,26 @@ esp32FOTA esp32FOTA(SW_TYPE, SW_VERSION);
 //#include <credentials.h>
 char ap_ssid[40]; //to store the wifi ap name
 char ap_pass[40]; //to store the wifi ap password
-#define MHZ19B
+#define MHZ19_CO2
+//#define CM1106_CO2
 #define RPC
 //device has SSD1306 128x64 display
 #define DISPLAY
 
-#ifdef MHZ19B
+#define BAUDRATE 9600           // Device to CO2 sensor Serial baudrate (should not be changed)
+#define RX_PIN 19               // Rx pin which the CO2 Sensor Tx pin is attached
+#define TX_PIN 18               // Tx pin which the CO2 Sensor Rx pin is attached 
+
+#ifdef MHZ19_CO2
 #include "MHZ19.h"
-
-#define RX_PIN 19               // Rx pin which the MHZ19 Tx pin is attached to
-#define TX_PIN 18               // Tx pin which the MHZ19 Rx pin is attached to
-#define BAUDRATE 9600           // Device to MH-Z19 Serial baudrate (should not be changed)
-#define RANGE_Z19 5000          // Range for CO2 readings 
-
+#define RANGE_Z19 2000          // Range for CO2 readings 
 MHZ19 myMHZ19;                  // Constructor for library
 char myVersion[4];              // needed for MH-Z19B
+#endif
+
+#ifdef CM1106_CO2
+#include "CM1106.h"               //Using CM1106 Sensor
+CM1106 myCM1106;                  //Constructor for library
 #endif
 
 #define DHT                     //DHT temperature and hunidity sensor
@@ -55,9 +56,6 @@ char myVersion[4];              // needed for MH-Z19B
 Adafruit_BME280 bme; // I2C
 #endif
 
-// Ticker library to support precise time scheduling
-// https://github.com/bertmelis/Ticker-esp32
-#include "Ticker.h"
 
 #ifndef ESP32
 #pragma message(THIS EXAMPLE IS FOR ESP32 ONLY!)
@@ -197,6 +195,7 @@ DynamicJsonDocument configJson(1024); //json document to store config parameters
 uint8_t leds_control[] = { RED, YELLOW, GREEN };
 
 #define PIN_CONFIGURE 3 //Pin used to force configuration at boot
+#define PIN_BOOT 0
 
 #ifdef RPC
 // Set to true if application is subscribed for the RPC messages.
@@ -229,7 +228,7 @@ RPC_Response processCalibration(const RPC_Data &data)
   Serial.print("Set the calibration flag: ");
   Serial.println(calibrationFlag);
 #endif
-  return RPC_Response(NULL, calibrationFlag);
+  return RPC_Response("calibration", calibrationFlag);
 }
 
 // Function to receive a message with a severity level.
@@ -247,7 +246,7 @@ RPC_Response processUserMessage(const RPC_Data &data)
 #ifdef DEBUG
   Serial.println("Mensaje: " + userMessage + " Nivel: " + String(messageLevel));
 #endif
-  return RPC_Response(data["message"], data["level"]);
+  return RPC_Response("message", message);
 }
 
 // Function to control leds
@@ -260,6 +259,7 @@ int led_state[3] = {1, 1, 1};
 RPC_Response processSetLedState(const RPC_Data &data)
 {
   Serial.println("Received the set setLedState RPC method");
+  serializeJson(data,Serial);
   int led = data["led"];
   int enabled = data["enabled"];
 
@@ -274,7 +274,8 @@ RPC_Response processSetLedState(const RPC_Data &data)
     if (enabled == 2) digitalWrite(leds_control[led], 1);
     if (enabled == 0) digitalWrite(leds_control[led], 0);
   }
-  return RPC_Response(data["led"], enabled);
+  //return RPC_Response(data["led"], enabled);
+  return RPC_Response("enabled", enabled);
 }
 
 int level_warn = WARN;
@@ -294,7 +295,7 @@ RPC_Response processSetWarnings(const RPC_Data & data)
   Serial.print("Above " + String(level_danger + 1) + " ppm danger");
 #endif
 
-  return RPC_Response(NULL, data["warning"]);
+  return RPC_Response("warning", level_warn);
 }
 
 // RPC handlers for RPC
@@ -307,26 +308,14 @@ RPC_Callback callbacks[] = {
 };
 #endif
 
-// This measurments use on the ESP32Ticker library to wake up
-// the task every MEAS_PERIOD seconds
+// This measurments period MEAS_PERIOD in seconds
 
 #define MEAS_PERIOD 20
-int period = MEAS_PERIOD;
+
 #ifdef DHT
 DHTesp dht;
 #endif
 
-
-void measTask(void *pvParameters);
-bool getMeasurement();
-void triggerGetMeas ();
-
-// Task handle for the light value read task
-TaskHandle_t measTaskHandle = NULL;
-// Ticker for sensor reading */
-Ticker measTicker;
-// Flag if task should run
-bool tasksEnabled = false;
 #ifdef DHT
 // Comfort profile
 ComfortState cf;
@@ -342,68 +331,31 @@ int dhtPin = 23;
   true if task and timer are started
   false if task or timer couldn't be started
 */
-bool initMeas() {
-  byte resultValue = 0;
-
-  // Start task to get temperature
-  xTaskCreatePinnedToCore(
-    measTask,                       /* Function to implement the task */
-    "measTask ",                    /* Name of the task */
-    4000,                           /* Stack size in words */
-    NULL,                           /* Task input parameter */
-    5,                              /* Priority of the task */
-    &measTaskHandle,                /* Task handle. */
-    1);                             /* Core where the task should run */
-
-  if (measTaskHandle == NULL) {
-#ifdef DEBUG
-    Serial.println("Failed to start task for sensor update");
-#endif
-    return false;
-  } else {
-    // Start update of environment data every period seconds
-    measTicker.attach(period, triggerGetMeas );
-  }
-  return true;
-}
-
-/**
-  triggerGetMeas
-  Sets flag dhtUpdated to true for handling in loop()
-  called by Ticker getmeasTimer
-*/
-void triggerGetMeas () {
-  if (measTaskHandle != NULL) {
-    xTaskResumeFromISR(measTaskHandle);
-  }
-}
+unsigned long start_time; //record the initial millis() to wait for sensor stabilization
+#define WARMUPTIME 60
 
 /**
   Task to reads & precess measurements from sensors
-  @param pvParameters
-  pointer to task parameters
 */
 
 
 MEASUREMENT new_measurement[MAX_KEYS];
-void measTask(void *pvParameters) {
-
+void measTask() {
 #ifdef DEBUG
-  Serial.println("measTask loop started");
+  Serial.println("measTask started");
 #endif
-  while (1) // measTask loop
-  {
-    if (tasksEnabled) {
-      display.clearDisplay();
-      readMeasurement(new_measurement);
-      displayMeasurement(new_measurement);
-      publishMeasurement(new_measurement);
-      showLeds(new_measurement);
-      calibration();
-    }
-    vTaskSuspend(NULL);// Got sleep again
-  }
+
+  display.clearDisplay();
+  readMeasurement(new_measurement);
+  displayMeasurement(new_measurement);
+  publishMeasurement(new_measurement);
+  showLeds(new_measurement);
+  calibration();
+#ifdef DEBUG
+  Serial.println("measTask ended");
+#endif
 }
+
 //Activate leds
 void showLeds(MEASUREMENT* new_measurement)
 {
@@ -435,11 +387,19 @@ void showLeds(MEASUREMENT* new_measurement)
 }
 void calibration() //Calibrate if needed
 {
-#ifdef MHZ19B
-  //Check if a calibration is needed
   if (calibrationFlag) {
+#ifdef MHZ19_CO2
+    //Check if a calibration is needed
     myMHZ19.calibrate();
     myMHZ19.autoCalibration(true);
+    // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
+    setRange(RANGE_Z19);
+#endif
+#ifdef CM1106_CO2
+    //Check if a calibration is needed
+    myCM1106.calibrateZero();
+    myCM1106.autoCalibration(true, 7);
+#endif
     display.setTextSize(2);
     display.clearDisplay();
     display.setCursor(0, 0);
@@ -447,14 +407,10 @@ void calibration() //Calibrate if needed
     display.println("CO2 sensor");
     display.setTextSize(1);
     display.display();
-
-    // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
-    setRange(RANGE_Z19);
     //reset offset and flag
     co2Offset = 0;
     calibrationFlag = false;
   }
-#endif
 }
 
 //  Reads data from sensors
@@ -464,13 +420,14 @@ void readMeasurement(MEASUREMENT * measurements)
   float co2_t; //Temperature of the sensor (not very accurate as sensor generates heat)
   int keyIndex = 0;
 
-#ifdef MHZ19B
+#ifdef MHZ19_CO2
 
   /* note: getCO2() default is command "CO2 Unlimited". This returns the correct CO2 reading even
     if below background CO2 levels or above range (useful to validate sensor). You can use the
     usual documented command with getCO2(false) */
 
-  co2_ppm = co2Offset + myMHZ19.getCO2(true, true); // Request CO2 (as ppm) unlimimted value, new request
+  co2_ppm = co2Offset + myMHZ19.getCO2(); // Request CO2 (as ppm) unlimimted value, new request
+  //co2_ppm = co2Offset + myMHZ19.getCO2(true, true); // Request CO2 (as ppm) unlimimted value, new request
   co2_t = myMHZ19.getTemperature(true, false);   // decimal value, not new request
   //co2_t = myMHZ19.getTempAdjustment();   // adjusted temperature
 
@@ -486,10 +443,19 @@ void readMeasurement(MEASUREMENT * measurements)
   measurements[keyIndex].value = float(myMHZ19.getCO2Raw());
   keyIndex++;
 
-  //Process calibration at the end so the sensor will have time to settle
-# ifdef DEBUG
-  Serial.println("CO2 (ppm) : " + String(co2_ppm) + " Temperature(CO2) (C) : " + String(co2_t));
-# endif
+  double adjustedCO2 = myMHZ19.getCO2Raw();
+
+  adjustedCO2 = 6.60435861e+15 * exp(-8.78661228e-04 * adjustedCO2);      // Exponential equation for Raw & CO2 relationship
+  measurements[keyIndex].key = String("co2_adj");
+  measurements[keyIndex].value = float(adjustedCO2);
+  keyIndex++;
+
+#ifdef CM1106_CO2
+  co2_ppm = co2Offset + myCM1106.getCO2(); // Request CO2 (as ppm) unlimimted value, new request
+  measurements[keyIndex].key = String("co2_ppm");
+  measurements[keyIndex].value = float(co2_ppm);
+  keyIndex++;
+#endif
 
 #endif
 #ifdef DHT
@@ -591,35 +557,25 @@ void displayMeasurement(MEASUREMENT * mesurements)
   display.setCursor(0, 0); //top left
   int j = 0;
   for (int i = 0; i < MAX_KEYS; i++) {
-    if (mesurements[i].key == NO_KEY || j == lines)
-    {
-      Serial.println("Final de medidas");
-      break;
-    }
+    if (mesurements[i].key == NO_KEY || j == lines) break;
     else if (mesurements[i].key == "co2_ppm")
     {
       j++;
       snprintf(line, sizeof(line), "CO2: %-3.0f", mesurements[i].value);
       display.println(line);
-      Serial.println("CO2 a display: " + String(mesurements[i].value));
     }
     else if (mesurements[i].key == "humidity")
     {
       j++;
       snprintf(line, sizeof(line), "Hum: %-2.0f", mesurements[i].value);
-      Serial.println("Humedad a display: " + String(mesurements[i].value));
       display.println(line);
     }
     else if (mesurements[i].key == "temperature")
     {
       j++;
       snprintf(line, sizeof(line), "Tem: %-2.1f", mesurements[i].value);
-      Serial.println("Temperatura a display: " + String(mesurements[i].value));
       display.println(line);
     }
-    snprintf(line, sizeof(line), "%-10.10s: %-3.1f",
-             mesurements[i].key.c_str(), mesurements[i].value);
-    Serial.println(line);
   }
 
   display.setTextSize(1);
@@ -659,7 +615,7 @@ void displayMeasurement(MEASUREMENT * mesurements)
 // in such case it executes the execOTA function that downloads and installs
 // the new version.
 unsigned long last_m = 0;
-#define UPDATE_PERIOD 60 //check every 5 minutes
+#define UPDATE_PERIOD 60 //seconds
 void updateSW()
 {
   unsigned long current_m;
@@ -817,6 +773,7 @@ void InitWiFi()
 
   //save the custom parameters to FS
   if (shouldSaveConfig) {
+
     strcpy(mqtt_server, mqttServer.getValue());
     strcpy(mqtt_port, mqttPort.getValue());
     strcpy(telemetry_topic, telemetryTopic.getValue());
@@ -874,6 +831,9 @@ bool checkConnection()
     Serial.println(token);
 #endif
     if (!tb.connected()) {
+      display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
+      display.display();
+      success = false;
       // Connect to the ThingsBoard
 #ifdef DEBUG
       Serial.print("Connecting to : ");
@@ -885,8 +845,6 @@ bool checkConnection()
 #ifdef DEBUG
         Serial.println("Failed to connect to ThingsBoard ");
 #endif
-        display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
-        display.display();
         success = false;
       }
 #ifdef RPC
@@ -900,10 +858,6 @@ bool checkConnection()
 #ifdef DEBUG
         Serial.println("Failed to subscribe for RPC");
 #endif
-#ifdef DISPLAY
-        display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
-        display.display();
-#endif
         success = false;
       }
 #ifdef DEBUG
@@ -913,16 +867,17 @@ bool checkConnection()
     }
   }
 #ifdef DISPLAY
-  display.drawBitmap(display.width() - 16, 16, arrow_up_icon16x16, 16, 16, 1);
+  if (success) display.drawBitmap(display.width() - 16, 16, arrow_up_icon16x16, 16, 16, 1);
+  else display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
   display.display();
 #endif
   return success;
 }
 
 HardwareSerial mySerial(1);     // ESP32 serial port to communicate with sensor
-unsigned long start_time; //record the initial millis() to wait for sensor stabilization
-#define WARMUPTIME 60
-
+bool tasksEnabled = false;
+unsigned long current_time;
+unsigned long last_time;
 void setup()
 {
   //initialize configuration doc with preset values
@@ -961,7 +916,7 @@ void setup()
   // initialize control pins for leds
   for (int i = 0; i < sizeof(leds_control); i++) pinMode(leds_control[i], OUTPUT);
 
-#ifdef MHZ19B
+#ifdef MHZ19_CO2
   mySerial.begin(BAUDRATE, SERIAL_8N1, RX_PIN, TX_PIN);   // device to MH-Z19 serial start
   delay(500);
   myMHZ19.begin(mySerial);       // *Important, Pass your Stream reference
@@ -1008,36 +963,37 @@ void setup()
   if (esp32FOTA.execHTTPcheck()) esp32FOTA.execOTA();
   //Initiallize measurement tasks
 
-  initMeas(); //set up the measurement task scheduler
 
   // Signal end of setup() to tasks
-  //tasksEnabled = true;
+  tasksEnabled = false;
+  //wait for warmup
+  if (millis() - start_time < WARMUPTIME * 1000)
+  {
+    Serial.println("Waiting for: " + String((WARMUPTIME * 1000 - (millis() - start_time)) / 1000) + " seconds");
+    delay((WARMUPTIME * 1000 - (millis() - start_time)));
+  }
+  last_time = millis();
 }
 
 void loop() {
-  //do not enable measurements until the WARMUPTIME
-  if ((millis() - start_time) > WARMUPTIME * 1000) {
-    if (!tasksEnabled) {
-      // Wait 2 seconds to let system settle down
-      // delay(2000);
-      // Enable task that will read values from the sensors
-      tasksEnabled = true;
-      if (measTaskHandle != NULL) {
-        vTaskResume(measTaskHandle);
-      }
-    }
+  int current_time = millis();
+  if (current_time - last_time > MEAS_PERIOD * 1000)
+  {
+    measTask();
+    last_time = current_time;
   }
+
   // Check if user presses the configure button in order to calibrate the device
   if (!digitalRead(PIN_CONFIGURE)) calibrationFlag = true;
   updateSW(); //check for sw updates
 #ifdef RPC
   //check for incomming messages
   tb.loop();
-  delay(1000);
 #endif
-  yield();
+  delay(1000);
+  //yield();
 }
-
+#ifdef MHZ19_CO2
 void setRange(int range)
 {
   Serial.println("Setting range..");
@@ -1054,3 +1010,4 @@ void setRange(int range)
     Serial.println(myMHZ19.errorCode);          // Get the Error Code value
   }
 }
+#endif
