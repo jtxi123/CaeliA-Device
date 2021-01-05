@@ -12,4 +12,4 @@
 * Adafruit BME280 Library by Adafruit v 2.1.2
 * Ticker library for ESP32 by Bert Melis https://github.com/bertmelis/Ticker-esp32.git
 
-All libraries can be located through arduino library manager or throug the links provided.
+All libraries can be located through arduino library manager or through the links provided.
