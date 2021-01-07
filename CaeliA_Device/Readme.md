@@ -17,4 +17,4 @@ the dtostrf which is already defined in the core libraries of the ESP32.)
 All libraries can be located through arduino library manager or through the links provided.
 
 ## A library was written to support the CM1106
-* The library is included in the library folder
+* The library is included
