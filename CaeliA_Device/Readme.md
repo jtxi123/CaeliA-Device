@@ -10,6 +10,11 @@
 * Thingsboard Library by Thingsboard Team v 0.4.0
 * ArduinoHttpClient Library by Arduino v 0.4.0
 * Adafruit BME280 Library by Adafruit v 2.1.2
-* Ticker library for ESP32 by Bert Melis https://github.com/bertmelis/Ticker-esp32.git
+* Arduino 107 debug library by Alexander Entinger
+(note:  I had to eliminate the dtostrf.c file from the library since it redefines
+the dtostrf which is already defined in the core libraries of the ESP32.)
 
 All libraries can be located through arduino library manager or through the links provided.
+
+## A library was written to support the CM1106
+* The library is included in the library folder
