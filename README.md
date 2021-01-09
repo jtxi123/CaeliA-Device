@@ -1,6 +1,6 @@
 # CaeliA-Device
 ![](./CaeliA_Device/Images/Dispositivo%20CaeliA.jpg)
-
+![](./CaeliA_Device/Images/Dispositivo%20CaeliA%20(CM1106%20y%20BME280).jpg)
 This project describes the design of a CO2 metering for deployment in schools and other public and private places.
 
 The device takes CO2 as well as other environmental readings periodically and publishes them using mqtt to a cloud platform.
