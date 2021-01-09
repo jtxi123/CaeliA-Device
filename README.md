@@ -39,7 +39,7 @@ In the case there is a new version it will download and install it unattended.
 
 # Schematics of the device:
 
-![](./CaeliA_Device/Images/Esquema-v2.jpg)
+![](./CaeliA_Device/Images/Esquema_v2.jpg)
 
 # and the PCB
 
