@@ -8,9 +8,9 @@ The device is equiped with a display and some indicator leds in order to also al
 CO2 levels.
 
 The device was built using an ESP32 nodemcu and utilizes two sensors:
-* MHZ19 CO2 sensor: 
+* MHZ19 or CM1106 CO2 sensor: 
     - An NDIR co2 sensor that supports a serial UART interface.
-* DHT11 Humidity and Temperature sensor: 
+* DHT11 or BME280 Humidity and Temperature sensor: 
     - The sensor provides temperature and humidity and is interfaced though a PWM
 
 The device needs a wifi hotspot to connect to Internet and publish the readings.
