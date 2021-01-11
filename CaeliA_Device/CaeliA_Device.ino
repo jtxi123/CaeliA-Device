@@ -1,10 +1,11 @@
 #define DBG_ENABLE_ERROR
 #define DBG_ENABLE_WARNING
 #define DBG_ENABLE_INFO
-#define DBG_ENABLE_DEBUG
+//#define DBG_ENABLE_DEBUG
 #define DBG_ENABLE_VERBOSE
+
 #include <ArduinoDebug.hpp>
-DEBUG_INSTANCE(80, Serial);
+DEBUG_INSTANCE(200, Serial);
 
 #include <FS.h>
 #include <SPIFFS.h>
@@ -12,6 +13,18 @@ DEBUG_INSTANCE(80, Serial);
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ThingsBoard.h>    // ThingsBoard SDK
+
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+WiFiUDP ntpUDP;
+// You can specify the time server pool and the offset (in seconds, can be
+// changed later with setTimeOffset() ). Additionaly you can specify the
+// update interval (in milliseconds, can be changed using setUpdateInterval() ).
+//
+//tiempo UTC para tener hora local hy que modificar el
+// offset (0) con la función timeClient.setTimeOffset(long timeOffset)
+//NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
+NTPClient timeClient(ntpUDP);
 
 //needed for library for autoconnect
 #include <DNSServer.h>
@@ -41,7 +54,7 @@ char ap_pass[40]; //to store the wifi ap password
 
 #ifdef MHZ19_CO2
 #include "MHZ19.h"
-#define RANGE_Z19 2000          // Range for CO2 readings 
+#define RANGE_Z19 5000          // Range for CO2 readings 
 MHZ19 myMHZ19;                  // Constructor for library
 #endif
 
@@ -57,13 +70,13 @@ typedef enum SensorType
 } SensorType;
 SensorType co2Sensor = NOSENSOR;
 
-//#define DHT                     //DHT temperature and hunidity sensor
+#define DHT                     //DHT temperature and hunidity sensor
 #ifdef DHT
 #include "DHTesp.h"
 DHTesp dht;
 // Comfort profile
 ComfortState cf;
-// Pin number for DHT11 data pin */
+// Pin number for DHT11 data pin
 int dhtPin = 23;
 int dhtSensor = 0;
 #endif
@@ -105,7 +118,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define wifi1_icon16x16_width 16
 #define wifi1_icon16x16_height 16
 //variable to register the detection of a display at address 0x3C
-bool displayPresent=false; 
+bool displayPresent = false;
 unsigned char wifi1_icon16x16[] =
 {
   0b00000000, 0b00000000, //
@@ -190,16 +203,10 @@ char token[40];
 // Baud rate for debug serial console
 #define SERIAL_DEBUG_BAUD    115200
 
-#define MAX_KEYS 10 //Maximum number of Telemetry key-value pairs
+#define MAX_KEYS 20 //Maximum number of Telemetry key-value pairs
 #define NO_KEY ""  //empty key tag name 
 #define DISPLAY_LINES 8 //Number of lines on display
 
-//Measurement structure (key value pairs)
-struct MEASUREMENT
-{
-  String  key;
-  float value;
-};
 
 // Create the ThingsBoard client
 WiFiClient espClient;
@@ -218,6 +225,11 @@ uint8_t leds_control[] = { RED, YELLOW, GREEN };
 
 #define PIN_CONFIGURE 3 //Pin used to force configuration at boot
 #define PIN_BOOT 0
+
+//Telemetry Json document
+DynamicJsonDocument telemetry(1024);
+//Telemetry telemetry[MAX_KEYS];
+int keyIndex;
 
 #ifdef RPC
 // Set to true if application is subscribed for the RPC messages.
@@ -328,27 +340,26 @@ RPC_Callback callbacks[] = {
 unsigned long start_time; //record the initial millis() to wait for sensor stabilization
 #define WARMUPTIME 60
 
-/**
-  Task to reads & precess measurements from sensors
-*/
+
+//  Task to reads & precess measurements from sensors
 
 
-MEASUREMENT new_measurement[MAX_KEYS];
+
 void measTask() {
 
   DBG_INFO("measTask started");
   display.clearDisplay();
-  readMeasurement(new_measurement);
-  displayMeasurement(new_measurement);
-  publishMeasurement(new_measurement);
-  showLeds(new_measurement);
+  readMeasurement();
+  displayMeasurement();
+  publishMeasurement();
+  showLeds();
   calibration();
   DBG_INFO("measTask ended");
 
 }
 
 //Activate leds
-void showLeds(MEASUREMENT* new_measurement)
+void showLeds()
 {
   //when enabled==1
   //led 0 lights if co2 value is above danger level (red)
@@ -357,25 +368,38 @@ void showLeds(MEASUREMENT* new_measurement)
   //when enabled==0 led is off
   //when enabled==2 led is on
 
-  if (String(new_measurement[0].key) = "co2_ppm") {
-    int co2_ppm = new_measurement[0].value;
-    DBG_VERBOSE("Levels warn: %i danger: %i Current CO2 level: %i ppm", level_warn, level_danger, co2_ppm);
-    if (co2_ppm <= level_warn) digitalWrite(leds_control[2], true);
-    else digitalWrite(leds_control[2], false);
-    if (led_state[2] == 0) digitalWrite(leds_control[2], false);
-    if (led_state[2] == 2) digitalWrite(leds_control[2], true);
-
-    if ((co2_ppm <= level_danger) && (co2_ppm > level_warn)) digitalWrite(leds_control[1], true);
-    else digitalWrite(leds_control[1], false);
-    if (led_state[1] == 0) digitalWrite(leds_control[1], false);
-    if (led_state[1] == 2) digitalWrite(leds_control[1], true);
-
-    if (co2_ppm > level_danger) digitalWrite(leds_control[0], true);
-    else digitalWrite(leds_control[0], false);
-    if (led_state[0] == 0) digitalWrite(leds_control[0], false);
-    if (led_state[0] == 2) digitalWrite(leds_control[0], true);
+  int co2_ppm = telemetry["values"]["co2_ppm"];
+  DBG_VERBOSE("Levels warn: %i danger: %i Current CO2 level: %i ppm", level_warn, level_danger, co2_ppm);
+  //turn off all leds
+  for (int i = 0; i < 3; i++) digitalWrite(leds_control[i], 0);//turn off all leds
+  DBG_DEBUG("turn off all leds");
+  //turn on the level led
+  if (co2_ppm <= level_warn) {
+    DBG_DEBUG("Safe GREEN");
+    digitalWrite(leds_control[2], 1);
+  }
+  else if ((co2_ppm <= level_danger) ) {
+    DBG_DEBUG("Warning Yellow");
+    digitalWrite(leds_control[1], 1);
+  }
+  else {
+    DBG_DEBUG("Danger RED");
+    digitalWrite(leds_control[0], 1);
+  }
+  // If forced on or off
+  for (int i = 0; i < 3; i++)
+  {
+    if (led_state[i] == 0) {
+      DBG_DEBUG("Force off led: %i", i);
+      digitalWrite(leds_control[i], 0);
+    }
+    else if (led_state[i] == 2) {
+      DBG_DEBUG("Force on led: %i", i);
+      digitalWrite(leds_control[i], 1);
+    }
   }
 }
+
 void calibration() //Calibrate if needed
 {
   if (calibrationFlag) {
@@ -410,48 +434,52 @@ void calibration() //Calibrate if needed
 
 
 //  Reads data from sensors
-void readMeasurement(MEASUREMENT * measurements)
+void readMeasurement()
 {
   int co2_ppm; //concertration of CO2
   float co2_t; //Temperature of the sensor (not very accurate as sensor generates heat)
-  int keyIndex = 0;
-
+  keyIndex = 0;
+  timeClient.update();
+  unsigned long long ts;
+  char ts_str[20];
+  JsonObject tm = telemetry.to<JsonObject>();
+  ts = timeClient.getEpochTime();
+  ts = ts * 1000; // in ms? UTC
+  // we have to convert the ts to a string because the Json serialize arduino
+  // function will not handle long long types
+  sprintf(ts_str, "%llu", ts);
+  tm["ts"] = String(ts_str);
+  JsonObject values = tm.createNestedObject("values");
 #ifdef MHZ19_CO2
   if (co2Sensor == MHZ19sensor) {
-    /* note: getCO2() default is command "CO2 Unlimited". This returns the correct CO2 reading even
-      if below background CO2 levels or above range (useful to validate sensor). You can use the
-      usual documented command with getCO2(false) */
+    // note: getCO2() default is command "CO2 Unlimited". This returns the correct CO2 reading even
+    // if below background CO2 levels or above range (useful to validate sensor). You can use the
+    // usual documented command with getCO2(false)
 
     co2_ppm = co2Offset + myMHZ19.getCO2(); // Request CO2 (as ppm) unlimimted value, new request
     //co2_ppm = co2Offset + myMHZ19.getCO2(true, true); // Request CO2 (as ppm) unlimimted value, new request
     co2_t = myMHZ19.getTemperature(true, false);   // decimal value, not new request
     //co2_t = myMHZ19.getTempAdjustment();   // adjusted temperature
 
-    measurements[keyIndex].key = String("co2_ppm");
-    measurements[keyIndex].value = float(co2_ppm);
+    values["co2_ppm"] = co2_ppm;
     keyIndex++;
 
-    measurements[keyIndex].key = String("co2_t");
-    measurements[keyIndex].value = float(co2_t);
+    values["co2_t"] = co2_t;
     keyIndex++;
 
-    measurements[keyIndex].key = String("co2_raw");
-    measurements[keyIndex].value = float(myMHZ19.getCO2Raw());
+    values["co2_raw"] = myMHZ19.getCO2Raw();
     keyIndex++;
 
     double adjustedCO2 = myMHZ19.getCO2Raw();
     adjustedCO2 = 6.60435861e+15 * exp(-8.78661228e-04 * adjustedCO2);      // Exponential equation for Raw & CO2 relationship
-    measurements[keyIndex].key = String("co2_adj");
-    measurements[keyIndex].value = float(adjustedCO2);
+    values["co2_adj"] = adjustedCO2;
     keyIndex++;
   }
 #endif
 #ifdef CM1106_CO2
   if (co2Sensor == CM1106sensor) {
-    DBG_INFO("Getting CO2");
     co2_ppm = co2Offset + myCM1106.getCO2(); // Request CO2 (as ppm) unlimimted value, new request
-    measurements[keyIndex].key = String("co2_ppm");
-    measurements[keyIndex].value = float(co2_ppm);
+    values["co2_ppm"] = co2_ppm;
     keyIndex++;
   }
 #endif
@@ -467,36 +495,28 @@ void readMeasurement(MEASUREMENT * measurements)
     // Reading temperature for humidity takes about 250 milliseconds!
     // Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
     // Check if any reads failed and exit early (to try again).
-    if (dht.getStatus() != 0) {
-      DBG_ERROR("DHT11 error status : %s", getStatusString());
-      measurements[keyIndex].key[0] = 0;
+    if (dht.getStatus()) {
+      DBG_ERROR("DHT11 error status : %s", dht.getStatusString());
     } else {
-
       newValues = dht.getTempAndHumidity();
-
       heatIndex = dht.computeHeatIndex(newValues.temperature, newValues.humidity);
       dewPoint = dht.computeDewPoint(newValues.temperature, newValues.humidity);
       cr = dht.getComfortRatio(cf, newValues.temperature, newValues.humidity);
 
       //record key value pairs on the measurementes array (to be published)
-      measurements[keyIndex].key = String("temperature");
-      measurements[keyIndex].value = float(newValues.temperature);
+      values["temperature"] = newValues.temperature;
       keyIndex++;
 
-      measurements[keyIndex].key = String("humidity");
-      measurements[keyIndex].value = float(newValues.humidity);
+      values["humidity"] = newValues.humidity;
       keyIndex++;
 
-      measurements[keyIndex].key = String("dewPoint");
-      measurements[keyIndex].value = float(dewPoint);
+      values["dewPoint"] = dewPoint;
       keyIndex++;
 
-      measurements[keyIndex].key = String("heatIndex");
-      measurements[keyIndex].value = float(heatIndex);
+      values["dewPoint"] = dewPoint;
       keyIndex++;
 
-      measurements[keyIndex].key = String("comfortRatio");
-      measurements[keyIndex].value = float(cr);
+      values["comfortRatio"] = cr;
       keyIndex++;
     }
   }
@@ -504,106 +524,83 @@ void readMeasurement(MEASUREMENT * measurements)
 #ifdef BME280
   if (bmeSensor)
   {
-    measurements[keyIndex].key = String("temperature");
-    measurements[keyIndex].value = float(bme.readTemperature());
+    values["temperature"] = bme.readTemperature();
     keyIndex++;
 
-    measurements[keyIndex].key = String("pressure");
-    measurements[keyIndex].value = float(bme.readPressure());
+    values["pressure"] = bme.readPressure();
     keyIndex++;
 
-    measurements[keyIndex].key = String("humidity");
-    measurements[keyIndex].value = float(bme.readHumidity());
+    values["humidity"] = bme.readHumidity();
     keyIndex++;
 
-    measurements[keyIndex].key = String("altitude");
-    measurements[keyIndex].value = float(bme.readAltitude(SEALEVELPRESSURE_HPA));
+    values["altitude"] = bme.readAltitude(SEALEVELPRESSURE_HPA);
     keyIndex++;
   }
 #endif
-  //end with an empty key
-  measurements[keyIndex].key = String(NO_KEY);
+
 }
 
 //  Publishes the measurements to the mqtt broker
-bool publishMeasurement(MEASUREMENT * mesurements)
+bool publishMeasurement()
 {
+
   DBG_INFO("Start publishing");
+  JsonObject values = telemetry["values"];
+  for (JsonPair p : values) {
+    DBG_INFO("key: %s value: %4.1f", p.key().c_str(), float(p.value()));
+  }
   if (checkConnection()) {
-    for (int i = 0; i < MAX_KEYS; i++) {
-      if (mesurements[i].key == NO_KEY) break;
-      tb.sendTelemetryFloat(mesurements[i].key.c_str(), mesurements[i].value);
-      DBG_INFO("key: %s value: %4.1f", mesurements[i].key.c_str(), mesurements[i].value);
-    }
+    char telemetry_str[200];
+    serializeJson(telemetry, telemetry_str);
+    DBG_INFO(telemetry_str);
+    tb.sendTelemetryJson((const char*)telemetry_str);
     return true;
-  } else return false;
+  }
+  else return false;
 }
 //Function to display the measurements of the measuments array
 
-void displayMeasurement(MEASUREMENT * mesurements)
+void displayMeasurement()
 {
+
 #ifdef DISPLAY
-  int lines = DISPLAY_LINES - 1; // do not overflow display
-  char line[20];
-  display.clearDisplay();
-  display.setTextSize(2);
-  lines /= 2;
-  if (MAX_KEYS < lines) lines = MAX_KEYS;
-  //display.clearDisplay();
-  display.setCursor(0, 0); //top left
-  int j = 0;
-  for (int i = 0; i < MAX_KEYS; i++) {
-    if (mesurements[i].key == NO_KEY || j == lines) break;
-    else if (mesurements[i].key == "co2_ppm")
-    {
-      j++;
-      snprintf(line, sizeof(line), "CO2: %-3.0f", mesurements[i].value);
-      display.println(line);
-    }
-    else if (mesurements[i].key == "humidity")
-    {
-      j++;
-      snprintf(line, sizeof(line), "Hum: %-2.0f", mesurements[i].value);
-      display.println(line);
-    }
-    else if (mesurements[i].key == "temperature")
-    {
-      j++;
-      snprintf(line, sizeof(line), "Tem: %-2.1f", mesurements[i].value);
-      display.println(line);
-    }
-  }
-
-  display.setTextSize(1);
-  display.setCursor(0, (DISPLAY_LINES - 1) * 8); //last row
-  if (userMessage != "") display.println(userMessage);
-  else display.println(token);
-  display.display();
-#endif
-}
-/*
-  void displayMeasurement(MEASUREMENT * mesurements)
+  if (displayPresent)
   {
-  #ifdef DISPLAY
-  int lines = DISPLAY_LINES - 1; // do not overflow display
+    int lines = DISPLAY_LINES - 1; // do not overflow display
+    char line[20];
+    display.clearDisplay();
+    display.setTextSize(2);
+    JsonObject values = telemetry["values"];
+    lines /= 2;
+    if (MAX_KEYS < lines) lines = MAX_KEYS;
+    //display.clearDisplay();
+    display.setCursor(0, 0); //top left
+    int j = 0;
+    if ( j < lines) {
+      snprintf(line, sizeof(line), "CO2: %i", int(values["co2_ppm"]));
+      display.println(line);
+      j++;
+    }
+    if ( j < lines) {
+      snprintf(line, sizeof(line), "Hum: %-2.0f", float(values["humidity"]));
+      display.println(line);
+      j++;
+    }
+    if ( j < lines) {
+      snprintf(line, sizeof(line), "Tem: %-2.1f", float(values["temperature"]));
+      display.println(line);
+      j++;
+    }
+    display.setTextSize(1);
+    display.setCursor(0, (DISPLAY_LINES - 1) * 8); //last row
+    if (userMessage != "") display.println(userMessage);
+    else display.println(token);
+    display.display();
+  }
+#endif
 
-  if (MAX_KEYS < lines) lines = MAX_KEYS;
-  //display.clearDisplay();
-  display.setCursor(0, 0); //top left
-  for (int i = 0; i < lines; i++) {
-  if (mesurements[i].key == NO_KEY ) break;
-  char line[20];
-  snprintf(line, sizeof(line), " %-10.10s: %-3.1f",
-  mesurements[i].key.c_str(), mesurements[i].value);
-  display.println(line);
-  }
-  display.setCursor(0, (DISPLAY_LINES - 1) * 8); //last row
-  if (userMessage != "") display.println(userMessage);
-  else display.println(token);
-  display.display();
-  #endif
-  }
-*/
+}
+
 
 // Check for software updates
 // The function execHTTPcheck reads the json document in the sw_server
@@ -614,6 +611,7 @@ unsigned long last_m = 0;
 #define UPDATE_PERIOD 60 //seconds
 void updateSW()
 {
+
   unsigned long current_m;
   current_m = millis();
   if (last_m == 0) last_m = millis(); //first execution
@@ -623,6 +621,7 @@ void updateSW()
     if (esp32FOTA.execHTTPcheck()) esp32FOTA.execOTA();
     last_m = current_m;
   }
+
 }
 
 
@@ -790,12 +789,12 @@ void InitWiFi()
 #ifdef DISPLAY
   if (displayPresent)
   {
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.setTextSize(2);
-  display.println("Esperando medidas");
-  display.setTextSize(1);
-  display.display();
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.setTextSize(2);
+    display.println("Esperando medidas");
+    display.setTextSize(1);
+    display.display();
   }
 #endif
   //if you get here you have connected to the WiFi
@@ -803,7 +802,6 @@ void InitWiFi()
   //Save the credentials just in case we need to reconnect
   strcpy(ap_ssid, wifiManager.getWiFiSSID().c_str());
   strcpy(ap_pass, wifiManager.getWiFiPass().c_str());
-  //return configJ;
 }
 
 //Check wifi connection. If WIFI connection is down try to reconnect
@@ -812,32 +810,33 @@ void InitWiFi()
 bool checkConnection()
 // Check connection to Wifi and TB. If necessary reconnect
 {
+
   bool success = true; //succces retunt code
   //Check if we are connected
   if (WiFi.status() != WL_CONNECTED)
   {
     DBG_INFO("Disconnected from AP");
-      if (displayPresent)
-  {
-    display.drawBitmap(display.width() - 16, 0, cancel_icon16x16, 16, 16, 1);
-    display.display();
-  }
+    if (displayPresent)
+    {
+      display.drawBitmap(display.width() - 16, 0, cancel_icon16x16, 16, 16, 1);
+      display.display();
+    }
     WiFi.begin(ap_ssid, ap_pass);
     success = false;
   } else {
-      if (displayPresent)
-  {
-    display.drawBitmap(display.width() - 16, 0, wifi1_icon16x16, 16, 16, 1);
-    display.display();
-  }
+    if (displayPresent)
+    {
+      display.drawBitmap(display.width() - 16, 0, wifi1_icon16x16, 16, 16, 1);
+      display.display();
+    }
 
     // Reconnect to ThingsBoard, if needed
     if (!tb.connected()) {
-        if (displayPresent)
-  {
-      display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
-      display.display();
-  }
+      if (displayPresent)
+      {
+        display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
+        display.display();
+      }
       success = false;
       // Connect to the ThingsBoard
       DBG_INFO("Connecting to: %s with token: %s", (const char*)configJson["mqtt_server"], token);
@@ -858,12 +857,12 @@ bool checkConnection()
 #endif
     }
 #ifdef DISPLAY
-  if (displayPresent)
-  {
-    if (success) display.drawBitmap(display.width() - 16, 16, arrow_up_icon16x16, 16, 16, 1);
-    else display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
-    display.display();
-  }
+    if (displayPresent)
+    {
+      if (success) display.drawBitmap(display.width() - 16, 16, arrow_up_icon16x16, 16, 16, 1);
+      else display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
+      display.display();
+    }
 #endif
   }
   return success;
@@ -877,6 +876,7 @@ unsigned long last_time;
 // Setup procedure
 void setup()
 {
+
   //initialize configuration doc with preset values
   configJson["mqtt_server"] = THINGSBOARD_SERVER;
   configJson["mqtt_port"] = THINGSBOARD_PORT;
@@ -892,8 +892,8 @@ void setup()
   Wire.beginTransmission(0x3C);
   if (!Wire.endTransmission()) displayPresent = true;
   if (displayPresent)
-  DBG_INFO("SSD1306 Display present");
   {
+    DBG_INFO("SSD1306 Display present");
     // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
 
@@ -911,6 +911,9 @@ void setup()
   }
 #endif
   InitWiFi();
+  timeClient.begin();
+  timeClient.update();
+  DBG_INFO("Boot time: %s", timeClient.getFormattedTime());
 
   //ennable uploading over the air
   //register the server where to check if firmware needs updating
@@ -925,7 +928,7 @@ void setup()
   myCM1106.begin(mySerial);       // *Important, Pass your Stream reference
   myVersion[0] = 0;
   myCM1106.getVersion(myVersion);
-  if (myVersion[0] != 0) co2Sensor = CM1106sensor;
+  if (myVersion[0]) co2Sensor = CM1106sensor;
   if (co2Sensor == CM1106sensor) {
     DBG_INFO("CM1106 Sensor detected");
     DBG_VERBOSE("ProgrammID : ESP32_CM1106 Firmware Version : %s", myVersion);
@@ -935,19 +938,16 @@ void setup()
 #ifdef MHZ19_CO2
   //check for MHZ19_CO2
   myMHZ19.begin(mySerial);       // *Important, Pass your Stream reference
-  //delay(30000); //Wait for sensor to stablilize;
-  //if (myMHZ19.getCO2()) co2Sensor = MHZ19sensor;
   myVersion[0] = 0;
   myMHZ19.getVersion(myVersion);
-  if (myVersion[0] != 0) co2Sensor = MHZ19sensor;
+  if (myVersion[0]) co2Sensor = MHZ19sensor;
   if (co2Sensor == MHZ19sensor) {
     DBG_INFO("MHZ19 Sensor detected");
     //delay(5000);                   // Wait for sensor to stabilize
     myMHZ19.autoCalibration(true);
     setRange(RANGE_Z19);                // set Range 5000 using a function, see below (disabled as part of calibration)
     //  Primary Information block
-    DBG_VERBOSE("ProgrammID : ESP32_MHZ19 Firmware Version : %c%c.%c%c",
-                myVersion[0], myVersion[1], myVersion[2], myVersion[3]);
+    DBG_VERBOSE("ProgrammID : ESP32_MHZ19 Firmware Version : %c%c.%c%c", myVersion[0], myVersion[1], myVersion[2], myVersion[3]);
     DBG_VERBOSE("Background CO2 : %i", myMHZ19.getBackgroundCO2());
     DBG_VERBOSE("Temperature Cal : %4.1f", myMHZ19.getTempAdjustment());
   }
@@ -956,27 +956,24 @@ void setup()
 #ifdef DHT
   // Initialize temperature sensor
   dht.setup(dhtPin, DHTesp::DHT11);
-  if (!DHT.status()) {
-    dhtSensor = 0;
+  dht.getTempAndHumidity();
+  if (dht.getStatus()) {
+    DBG_DEBUG("DHT11 error status : %s", dht.getStatusString());
     DBG_INFO("DHT not detected");
-  }
-  else
-  {
+    dhtSensor = 0;
+  } else {
     dhtSensor = 1;
     DBG_INFO("DHT initiated");
-    myCM1106.getVersion(myVersion);
-
   }
 #endif
 #ifdef BME280
-
-  if (! bme.begin(0x76, &Wire)) {
+  if (!bme.begin(0x76, &Wire)) {
     bmeSensor = 0;
-    DBG_ERROR("BME280 sensor not detected");
+    DBG_INFO("BME280 sensor not detected");
     //while (1); continue with no sensor
   } else {
     bmeSensor = 1;
-    DBG_ERROR("BME280 sensor initialized");
+    DBG_INFO("BME280 sensor initialized");
   }
 #endif
 
@@ -985,18 +982,18 @@ void setup()
   //Check if update is needed
   if (esp32FOTA.execHTTPcheck()) esp32FOTA.execOTA();
   //Initiallize measurement tasks
-
+  checkConnection();
 
   // Signal end of setup() to tasks
   tasksEnabled = false;
   //wait for warmup
   if (millis() - start_time < WARMUPTIME * 1000)
   {
-    DBG_INFO("Waiting for : %i seconds", (WARMUPTIME * 1000 - (millis() - start_time)) / 1000);
+    DBG_INFO("Waiting for : %i seconds for sensor warmup", (WARMUPTIME * 1000 - (millis() - start_time)) / 1000);
     delay((WARMUPTIME * 1000 - (millis() - start_time)));
   }
   last_time = millis();
-  DBG_INFO("------------------------------------------");
+  DBG_INFO("-----------Starting measurement cycle-------------------");
 }
 
 void loop() {
