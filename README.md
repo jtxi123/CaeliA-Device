@@ -35,6 +35,16 @@ In order to connect, the device uses the [WifiManager library](https://github.co
 in the flash SPFFS file system and will be recovered in subsequent reboots.
 * The user can force the device to raise the captive portal upon powerup to change any of the existing parameters.
 
+# Calibration
+
+NDIR CO2 sensors must be periodically calibrated to compensate drifts. The device supports three methods:
+
+* Autocalibration (on by default): Whe operating under normal conditions, in operation the device assumes that at some point during a 24h period there will be a base level concentratio (approx. 400ppm) and uses that point to calibrate. 
+
+* Manual calibration: Pressing the multipurpose button while the device is on operation in a base level CO2 concentration will force the device to follow a calibration cycle
+
+* Sending a command from the server (see RPC commands).
+
 The device uses the [fota library](https://github.com/chrisjoyce911/esp32FOTA) library for over the air updates. In will regularly check for firmware updates by checking current firmware version against the version recorded in the sw server.
 In the case there is a new version it will download and install it unattended.
 
@@ -60,8 +70,9 @@ Data on the device can be visualized thoug dashboards such as:
 The current platform used is ThingsBoard which allows also also to issue RPC commands that the device can interpret. Curtrently the following
 RPC calls over MQTT are implemented:
 
-    setOffset: Add offset to CO2 reading
+    setOffset: Add offset to CO2 reading#define DBG_ENABLE_ERROR
     calibration: Zero calibration of  device (400 ppm)
+    autoCalibration: turn autocalibration  on/off
     userMessage: Display a message for the user
     setLedState: Force LEDs on(2)/off(0)/warning_level(1)
     setWarnings: Define warning and danger levels
