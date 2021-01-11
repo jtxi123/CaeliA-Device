@@ -251,12 +251,48 @@ RPC_Response processSetOffset(const RPC_Data &data)
   return RPC_Response(NULL, co2Offset);
 }
 
-// Function to schedule a new calibration.
+// Function to turn on or off auto calibration.
+RPC_Response processAutoCalibration(const RPC_Data &data)
+{
+  if (data) {
+    DBG_INFO("Set auto calibration ON");
+#ifdef MHZ19_CO2
+    if (co2Sensor == MHZ19sensor) {
+      //Check if a calibration is needed
+      myMHZ19.autoCalibration(true);
+      // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
+      myMHZ19.setRange(RANGE_Z19);
+    }
+#endif
+#ifdef CM1106_CO2
+    if (co2Sensor == CM1106sensor) {
+      myCM1106.autoCalibration(true, 7);
+    }
+#endif
+  } else {
+    DBG_INFO("Set auto calibration OFF");
+#ifdef MHZ19_CO2
+    if (co2Sensor == MHZ19sensor) {
+      myMHZ19.autoCalibration(true);
+      // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
+      myMHZ19.setRange(RANGE_Z19);
+    }
+#endif
+#ifdef CM1106_CO2
+    if (co2Sensor == CM1106sensor) {
+      //Check if a calibration is needed
+      myCM1106.autoCalibration(true, 7);
+    }
+#endif
+  }
+  return RPC_Response("AutoCalibration", bool(data));
+}
+
 bool calibrationFlag;
 RPC_Response processCalibration(const RPC_Data &data)
 {
   calibrationFlag = true;
-  DBG_INFO("Received the Calibration RPC command");
+  DBG_INFO("Received the autoCalibration RPC command");
   DBG_INFO("Set the calibration flag: %i", calibrationFlag);
   return RPC_Response("calibration", calibrationFlag);
 }
@@ -326,6 +362,7 @@ RPC_Response processSetWarnings(const RPC_Data & data)
 RPC_Callback callbacks[] = {
   {"setOffset",         processSetOffset },
   {"calibration",       processCalibration },
+  {"autoCalibration",    processAutoCalibration },
   {"userMessage",       processUserMessage },
   {"setLedState",       processSetLedState },
   {"setWarnings",       processSetWarnings },
@@ -448,7 +485,7 @@ void readMeasurement()
   // we have to convert the ts to a string because the Json serialize arduino
   // function will not handle long long types
   sprintf(ts_str, "%llu", ts);
-  tm["ts"] = String(ts_str);
+  tm["ts"] = ts_str;
   JsonObject values = tm.createNestedObject("values");
 #ifdef MHZ19_CO2
   if (co2Sensor == MHZ19sensor) {
