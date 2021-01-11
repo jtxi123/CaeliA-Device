@@ -18,6 +18,7 @@ The device was built using an ESP32 nodemcu and utilizes two sensors:
     - An NDIR co2 sensor that supports a serial UART interface.
 * DHT11 or BME280 Humidity and Temperature sensor: 
     - The sensor provides temperature and humidity and is interfaced though a PWM
+* The software is designed to automatically detect which sensor is present and will use the corresponding sensor for CO2, temperature and humidity.
 
 The device needs a wifi hotspot to connect to Internet and publish the readings.
 
