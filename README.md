@@ -49,22 +49,22 @@ NDIR CO2 sensors must be periodically calibrated to compensate drifts. The devic
 The device uses the [fota library](https://github.com/chrisjoyce911/esp32FOTA) library for over the air updates. In will regularly check for firmware updates by checking current firmware version against the version recorded in the sw server.
 In the case there is a new version it will download and install it unattended.
 
-# Schematics of the device:
+# Configuration
 
-![](./CaeliA_Device/Images/Esquema_v2.jpg)
+When the device stars up it recovers the configuration stored in flash memory and tries to connect. If it succeds i proceeds with the setup and follows to start taking readings from the sensor and publishing them via mqtt. The reading cycle takes place every 20s although it is easy to change.
 
-# and the PCB
+Onece selected the AP of the arduino board the following screens allo you to configure the different parameters:
 
-![](./CaeliA_Device/Images/CaeliA_pcb_v2.jpg)
+![](./CaeliA_Device/Images/Screenshot_2021-01-12-22-50-51-228_com.android.htmlviewer.jpg)
+
+![](./CaeliA_Device/Images/Screenshot_2021-01-12-22-51-27-838_com.android.htmlviewer%20(1).jpg)
+
 
 # MQTT Cloud platform
 
 CaeliA device is conceived as a device used to publish into a cloud platform. The cloud platform can also be used to manage the device.
 
-![](./CaeliA_Device/Images/System.jpg)
-
 Data on the device can be visualized thoug dashboards such as:
-
 
 ![](./CaeliA_Device/Images/DeviceDashborad.jpg)
 
@@ -77,5 +77,14 @@ RPC calls over MQTT are implemented:
     userMessage: Display a message for the user
     setLedState: Force LEDs on(2)/off(0)/warning_level(1)
     setWarnings: Define warning and danger levels
+ 
+ 
+# Schematics of the device:
+
+![](./CaeliA_Device/Images/Esquema_v2.jpg)
+
+# and the PCB
+
+![](./CaeliA_Device/Images/CaeliA_pcb_v2.jpg)
 
 
