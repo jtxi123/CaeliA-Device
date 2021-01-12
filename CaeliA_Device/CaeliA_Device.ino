@@ -3,6 +3,7 @@
 #define DBG_ENABLE_INFO
 //#define DBG_ENABLE_DEBUG
 #define DBG_ENABLE_VERBOSE
+//Debug level for WiFiManager
 
 #include <ArduinoDebug.hpp>
 DEBUG_INSTANCE(200, Serial);
@@ -29,6 +30,7 @@ NTPClient timeClient(ntpUDP);
 //needed for library for autoconnect
 #include <DNSServer.h>
 #include <WebServer.h>
+#define WM_DEBUG_LEVEL 0
 #include <WiFiManager.h>
 
 //SW type and version needed to check for SW updates
@@ -189,10 +191,6 @@ unsigned char cancel_icon16x16[] =
 // Helper macro to calculate array size
 #define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
-// See https://thingsboard.io/docs/getting-started-guides/helloworld/
-
-// to understand how to obtain an access token
-//#define TOKEN  "ESP32_DEMO_TOKEN_JG" //to be changed
 char token[40];
 // ThingsBoard server instance.
 #define THINGSBOARD_SERVER  "demo.thingsboard.io"
@@ -651,10 +649,10 @@ void updateSW()
 
   unsigned long current_m;
   current_m = millis();
-  if (last_m == 0) last_m = millis(); //first execution
+  if (last_m == 0) last_m = current_m; //first execution
   if ((current_m - last_m) / 1000 > UPDATE_PERIOD)
   {
-    DBG_INFO("Current Type : %s  Version : %i", SW_TYPE, SW_VERSION);
+    DBG_INFO("Check for updates Current Type : %s  Version : %i", SW_TYPE, SW_VERSION);
     if (esp32FOTA.execHTTPcheck()) esp32FOTA.execOTA();
     last_m = current_m;
   }
@@ -689,15 +687,16 @@ bool readConfigFile(JsonDocument& doc)
   //DynamicJsonDocument doc(1024);
   DBG_INFO("mounting FS...");
   if (SPIFFS.begin()) {
-    DBG_INFO("mounted file system");
+    DBG_DEBUG("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
-      Serial.println("reading config file");
+      DBG_INFO("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
-        Serial.println("opened config file");
+        DBG_DEBUG("opened config file");
         deserializeJson(doc, configFile);
         serializeJson(doc, Serial);
+        Serial.println();
         configFile.close();
       }
     }
@@ -714,7 +713,7 @@ bool readConfigFile(JsonDocument& doc)
 bool saveConfigFile(JsonDocument& doc)
 {
   bool success = true;
-  Serial.println("saving config");
+  DBG_INFO("saving config");
   //DynamicJsonDocument doc(1024);
 
   File configFile = SPIFFS.open("/config.json", "w");
@@ -787,7 +786,7 @@ void InitWiFi()
   WiFiManagerParameter swServer("Update", "Update_Server", (const char*)configJson["sw_server"], 40);
   wifiManager.addParameter(&swServer);
 
-  Serial.println("Starting portal if needed");
+  DBG_INFO("Starting portal if needed");
   if (displayPresent)
   {
     display.println();
@@ -795,6 +794,8 @@ void InitWiFi()
     display.println(token);
     display.display();
   }
+  wifiManager.setConfigPortalTimeout(180);//set timeout to 180s
+  wifiManager.setConnectTimeout(60);
   if (digitalRead(PIN_CONFIGURE))
   {
     wifiManager.autoConnect(token);
@@ -839,6 +840,9 @@ void InitWiFi()
   //Save the credentials just in case we need to reconnect
   strcpy(ap_ssid, wifiManager.getWiFiSSID().c_str());
   strcpy(ap_pass, wifiManager.getWiFiPass().c_str());
+  //WiFi.disconnect(); //disconnect and reconnect to make sure we are on STA mode
+  //WiFi.mode(WIFI_STA); // disable AP for modemsleep
+  //checkConnection();
 }
 
 //Check wifi connection. If WIFI connection is down try to reconnect
@@ -950,7 +954,7 @@ void setup()
   InitWiFi();
   timeClient.begin();
   timeClient.update();
-  DBG_INFO("Boot time: %s", timeClient.getFormattedTime());
+  DBG_INFO("Boot time: %s UTC", timeClient.getFormattedTime());
 
   //ennable uploading over the air
   //register the server where to check if firmware needs updating
@@ -1017,7 +1021,9 @@ void setup()
   delay(2000); // Pause for 2 seconds
 
   //Check if update is needed
-  if (esp32FOTA.execHTTPcheck()) esp32FOTA.execOTA();
+  DBG_DEBUG('(const char*)(configJson["sw_server"])[0] = %c', (const char*)(configJson["sw_server"])[0]);
+  if (((const char*)(configJson["sw_server"]))[0]) if (esp32FOTA.execHTTPcheck()) esp32FOTA.execOTA();
+
   //Initiallize measurement tasks
   checkConnection();
 
@@ -1043,7 +1049,7 @@ void loop() {
 
   // Check if user presses the configure button in order to calibrate the device
   if (!digitalRead(PIN_CONFIGURE)) calibrationFlag = true;
-  if ((const char*)configJson["sw_server"][0])updateSW(); //check for sw updates
+  if (((const char*)(configJson["sw_server"]))[0])updateSW(); //check for sw updates
 #ifdef RPC
   //check for incomming messages
   tb.loop();
