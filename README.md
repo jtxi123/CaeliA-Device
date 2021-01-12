@@ -59,6 +59,20 @@ Onece selected the AP of the arduino board the following screens allo you to con
 
 ![](./CaeliA_Device/Images/Screenshot_2021-01-12-22-51-27-838_com.android.htmlviewer%20(1).jpg)
 
+# OTA software update
+
+The device checks periodically a json file stored in a web server, to verify if there is a newer version than the current software loaded on the device. The file also points to the location of the sw which can be stored in a different server. 
+
+```
+{
+    "type": "CaeliA_esp32_co2",
+    "version": 1,
+    "host": "192.168.1.200",
+    "port": 80, 
+    "bin": "/fota/CaeliA_Device.ino.esp32.bin"
+}
+```
+
 
 # MQTT Cloud platform
 
