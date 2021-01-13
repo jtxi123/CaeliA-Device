@@ -514,8 +514,11 @@ void readMeasurement()
 #ifdef CM1106_CO2
   if (co2Sensor == CM1106sensor) {
     co2_ppm = co2Offset + myCM1106.getCO2(); // Request CO2 (as ppm) unlimimted value, new request
-    values["co2_ppm"] = co2_ppm;
-    keyIndex++;
+    if (!myCM1106.getStatus()) DBG_INFO("CO2 sensor preheating");
+    else {
+      values["co2_ppm"] = co2_ppm;
+      keyIndex++;
+    }
   }
 #endif
 
