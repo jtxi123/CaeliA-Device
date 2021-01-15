@@ -3,7 +3,7 @@
   
   Version: 1.5.1
 
-  License: LGPLv3
+  License: GPLv3
 
   Library supporting CM1106 sensors
 -----------------------------------------------------*/
