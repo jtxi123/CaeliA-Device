@@ -84,7 +84,8 @@ Data on the device can be visualized thoug dashboards such as:
 
 The current platform used is ThingsBoard which allows also also to issue RPC commands that the device can interpret. Curtrently the following
 RPC calls over MQTT are implemented:
-´´´
+
+```
 setOffset: Add offset to CO2 reading#define DBG_ENABLE_ERROR
 calibration: Zero calibration of  device (400 ppm)
 autoCalibration: turn autocalibration  on/off
@@ -92,7 +93,7 @@ userMessage: Display a message for the user
 setLedState: Force LEDs on(2)/off(0)/warning_level(1)
 setWarnings: Define warning and danger levels
 autoCalibration: turn the autocalibration mode on=true or off=false
- ´´´
+```
  
 # Schematics of the device:
 
