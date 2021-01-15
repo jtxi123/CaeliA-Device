@@ -58,5 +58,6 @@ RPC calls over MQTT are implemented:
     userMessage: Display a message for the user
     setLedState: Force LEDs on(2)/off(0)/warning_level(1)
     setWarnings: Define warning and danger levels
+    autoCalibration: Change autocalibration mode (on=true, off=false)
 
 
