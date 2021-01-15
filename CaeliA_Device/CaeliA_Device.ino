@@ -5,7 +5,7 @@
 
   License: GPLv3
 
-  Library supporting CM1106 sensors
+  CaeliA main program
   ----------------------------------------------------- */
 #define DBG_ENABLE_ERROR
 #define DBG_ENABLE_WARNING
