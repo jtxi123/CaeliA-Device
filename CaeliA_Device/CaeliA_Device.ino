@@ -1,3 +1,12 @@
+/* -------------------------------------------------
+  Author: Juan Goicolea juan.goicolea@gmail.com
+
+  Version: 1.5.1
+
+  License: GPLv3
+
+  Library supporting CM1106 sensors
+  ----------------------------------------------------- */
 #define DBG_ENABLE_ERROR
 #define DBG_ENABLE_WARNING
 #define DBG_ENABLE_INFO
