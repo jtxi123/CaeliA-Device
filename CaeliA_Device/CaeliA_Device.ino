@@ -1,21 +1,13 @@
-/* -------------------------------------------------
-  Author: Juan Goicolea juan.goicolea@gmail.com
-
-  Version: 1.5.1
-
-  License: GPLv3
-
-  CaeliA main program
-  ----------------------------------------------------- */
 #define DBG_ENABLE_ERROR
 #define DBG_ENABLE_WARNING
 #define DBG_ENABLE_INFO
 //#define DBG_ENABLE_DEBUG
 #define DBG_ENABLE_VERBOSE
-//Debug level for WiFiManager
+//#define ENERGY_SAVE
 
 #include <ArduinoDebug.hpp>
 DEBUG_INSTANCE(200, Serial);
+#include "esp32-hal-cpu.h"
 
 #include <FS.h>
 #include <SPIFFS.h>
@@ -39,6 +31,7 @@ NTPClient timeClient(ntpUDP);
 //needed for library for autoconnect
 #include <DNSServer.h>
 #include <WebServer.h>
+//Debug level for WiFiManager
 #define WM_DEBUG_LEVEL 0
 #include <WiFiManager.h>
 
@@ -261,37 +254,19 @@ RPC_Response processSetOffset(const RPC_Data &data)
 // Function to turn on or off auto calibration.
 RPC_Response processAutoCalibration(const RPC_Data &data)
 {
-  if (data) {
-    DBG_INFO("Set auto calibration ON");
+  DBG_INFO("Set auto calibration");
 #ifdef MHZ19_CO2
-    if (co2Sensor == MHZ19sensor) {
-      //Check if a calibration is needed
-      myMHZ19.autoCalibration(true);
-      // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
-      myMHZ19.setRange(RANGE_Z19);
-    }
-#endif
-#ifdef CM1106_CO2
-    if (co2Sensor == CM1106sensor) {
-      myCM1106.autoCalibration(true, 7);
-    }
-#endif
-  } else {
-    DBG_INFO("Set auto calibration OFF");
-#ifdef MHZ19_CO2
-    if (co2Sensor == MHZ19sensor) {
-      myMHZ19.autoCalibration(true);
-      // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
-      myMHZ19.setRange(RANGE_Z19);
-    }
-#endif
-#ifdef CM1106_CO2
-    if (co2Sensor == CM1106sensor) {
-      //Check if a calibration is needed
-      myCM1106.autoCalibration(true, 7);
-    }
-#endif
+  if (co2Sensor == MHZ19sensor) {
+    myMHZ19.autoCalibration(bool(data));
+    // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
+    myMHZ19.setRange(RANGE_Z19);
   }
+#endif
+#ifdef CM1106_CO2
+  if (co2Sensor == CM1106sensor) {
+    myCM1106.autoCalibration(bool(data), 7);
+  }
+#endif
   return RPC_Response("AutoCalibration", bool(data));
 }
 
@@ -380,14 +355,15 @@ RPC_Callback callbacks[] = {
 
 #define MEAS_PERIOD 20
 
+// This is the period the disply remains ON in seconds
+#define WAKE_PERIOD 600
+
 
 unsigned long start_time; //record the initial millis() to wait for sensor stabilization
 #define WARMUPTIME 60
 
 
 //  Task to reads & precess measurements from sensors
-
-
 
 void measTask() {
 
@@ -399,9 +375,8 @@ void measTask() {
   showLeds();
   calibration();
   DBG_INFO("measTask ended");
-
 }
-
+bool displayState = true;
 //Activate leds
 void showLeds()
 {
@@ -417,29 +392,32 @@ void showLeds()
   //turn off all leds
   for (int i = 0; i < 3; i++) digitalWrite(leds_control[i], 0);//turn off all leds
   DBG_DEBUG("turn off all leds");
-  //turn on the level led
-  if (co2_ppm <= level_warn) {
-    DBG_DEBUG("Safe GREEN");
-    digitalWrite(leds_control[2], 1);
-  }
-  else if ((co2_ppm <= level_danger) ) {
-    DBG_DEBUG("Warning Yellow");
-    digitalWrite(leds_control[1], 1);
-  }
-  else {
-    DBG_DEBUG("Danger RED");
-    digitalWrite(leds_control[0], 1);
-  }
-  // If forced on or off
-  for (int i = 0; i < 3; i++)
+  if (displayState)
   {
-    if (led_state[i] == 0) {
-      DBG_DEBUG("Force off led: %i", i);
-      digitalWrite(leds_control[i], 0);
+    //turn on the level led
+    if (co2_ppm <= level_warn) {
+      DBG_DEBUG("Safe GREEN");
+      digitalWrite(leds_control[2], 1);
     }
-    else if (led_state[i] == 2) {
-      DBG_DEBUG("Force on led: %i", i);
-      digitalWrite(leds_control[i], 1);
+    else if ((co2_ppm <= level_danger) ) {
+      DBG_DEBUG("Warning Yellow");
+      digitalWrite(leds_control[1], 1);
+    }
+    else {
+      DBG_DEBUG("Danger RED");
+      digitalWrite(leds_control[0], 1);
+    }
+    // If forced on or off
+    for (int i = 0; i < 3; i++)
+    {
+      if (led_state[i] == 0) {
+        DBG_DEBUG("Force off led: %i", i);
+        digitalWrite(leds_control[i], 0);
+      }
+      else if (led_state[i] == 2) {
+        DBG_DEBUG("Force on led: %i", i);
+        digitalWrite(leds_control[i], 1);
+      }
     }
   }
 }
@@ -459,7 +437,7 @@ void calibration() //Calibrate if needed
 #ifdef CM1106_CO2
     if (co2Sensor == CM1106sensor) {
       //Check if a calibration is needed
-      myCM1106.calibrateZero();
+      myCM1106.calibrate();
       myCM1106.autoCalibration(true, 7);
     }
 #endif
@@ -797,6 +775,9 @@ void InitWiFi()
   wifiManager.addParameter(&telemetryTopic);
   WiFiManagerParameter swServer("Update", "Update_Server", (const char*)configJson["sw_server"], 40);
   wifiManager.addParameter(&swServer);
+  const char _customHtml_checkbox[] = "type=\"checkbox\"";
+  WiFiManagerParameter autoCalibrate("checkbox", "Auto Calibration", "T", 2, _customHtml_checkbox);
+  wifiManager.addParameter(&autoCalibrate);
 
   DBG_INFO("Starting portal if needed");
   if (displayPresent)
@@ -832,6 +813,7 @@ void InitWiFi()
     configJson["mqtt_port"] = mqtt_port;
     configJson["telemetry_topic"] = telemetry_topic;
     configJson["sw_server"] = sw_server;
+    configJson["auto_calibration"] = (autoCalibrate.getValue()[0] == 'T') ? true : false;
     saveConfigFile(configJson);
   }
 
@@ -852,6 +834,7 @@ void InitWiFi()
   //Save the credentials just in case we need to reconnect
   strcpy(ap_ssid, wifiManager.getWiFiSSID().c_str());
   strcpy(ap_pass, wifiManager.getWiFiPass().c_str());
+  WiFi.setSleep(true); //enable sleep mode
   //WiFi.disconnect(); //disconnect and reconnect to make sure we are on STA mode
   //WiFi.mode(WIFI_STA); // disable AP for modemsleep
   //checkConnection();
@@ -925,6 +908,7 @@ HardwareSerial mySerial(1);     // ESP32 serial port to communicate with sensor
 bool tasksEnabled = false;
 unsigned long current_time;
 unsigned long last_time;
+unsigned long display_time;
 
 // Setup procedure
 void setup()
@@ -985,7 +969,7 @@ void setup()
   if (co2Sensor == CM1106sensor) {
     DBG_INFO("CM1106 Sensor detected");
     DBG_VERBOSE("ProgrammID : ESP32_CM1106 Firmware Version : %s", myVersion);
-    myCM1106.autoCalibration(true, 7);
+    myCM1106.autoCalibration(configJson["auto_calibration"], 7);
   }
 #endif
 #ifdef MHZ19_CO2
@@ -997,7 +981,7 @@ void setup()
   if (co2Sensor == MHZ19sensor) {
     DBG_INFO("MHZ19 Sensor detected");
     //delay(5000);                   // Wait for sensor to stabilize
-    myMHZ19.autoCalibration(true);
+    myMHZ19.autoCalibration(configJson["auto_calibration"]);
     setRange(RANGE_Z19);                // set Range 5000 using a function, see below (disabled as part of calibration)
     //  Primary Information block
     DBG_VERBOSE("ProgrammID : ESP32_MHZ19 Firmware Version : %c%c.%c%c", myVersion[0], myVersion[1], myVersion[2], myVersion[3]);
@@ -1041,6 +1025,9 @@ void setup()
 
   // Signal end of setup() to tasks
   tasksEnabled = false;
+  setCpuFrequencyMhz(80); //Set CPU clock to 80MHz to save power
+  DBG_INFO("CPU Frequency : %i MHz", getCpuFrequencyMhz()); //Get CPU clock
+  //display.ssd1306_command(SSD1306_DISPLAYOFF);
   //wait for warmup
   if (millis() - start_time < WARMUPTIME * 1000)
   {
@@ -1048,19 +1035,45 @@ void setup()
     delay((WARMUPTIME * 1000 - (millis() - start_time)));
   }
   last_time = millis();
+  display_time = millis();
   DBG_INFO("-----------Starting measurement cycle-------------------");
 }
 
+bool pressed = false;
 void loop() {
-  int current_time = millis();
+  unsigned long current_time = millis();
   if (current_time - last_time > MEAS_PERIOD * 1000)
   {
+    //display.ssd1306_command(SSD1306_DISPLAYON);
+    //DBG_INFO("Enable sleep before: %s", (WiFi.getSleep()) ? "True" : "False");
     measTask();
+    //DBG_INFO("Enable sleep after: %s", (WiFi.getSleep()) ? "True" : "False");
+    //WiFi.setSleep(true);
     last_time = current_time;
+    //delay(5000);
+    //display.ssd1306_command(SSD1306_DISPLAYOFF);
   }
-
+#ifdef ENERGY_SAVE
+  if (current_time - display_time > WAKE_PERIOD * 1000)
+  {
+    displayState = false;
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+  }
+#endif
   // Check if user presses the configure button in order to calibrate the device
-  if (!digitalRead(PIN_CONFIGURE)) calibrationFlag = true;
+
+  if (!digitalRead(PIN_CONFIGURE))
+  {
+    DBG_INFO("Config PIN pressed");
+    display.ssd1306_command(SSD1306_DISPLAYON);
+    displayState = true;
+    //trigger calibration if button is pressed for more than 5 secs
+    if (pressed) {
+      if (current_time - display_time > 5000) calibrationFlag = true;
+    } else display_time = current_time;
+    pressed = true;
+  } else pressed = false;
+
   if (((const char*)(configJson["sw_server"]))[0])updateSW(); //check for sw updates
 #ifdef RPC
   //check for incomming messages
