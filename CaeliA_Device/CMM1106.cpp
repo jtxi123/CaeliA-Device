@@ -3,7 +3,7 @@
 
   Version: 1.5.1
 
-  License: GPLv3
+  License: LGPLv3
 
   Library supporting CM1106 sensors
   ----------------------------------------------------- */
@@ -124,7 +124,7 @@ void CM1106::autoCalibration(bool isON, byte ABCPeriod)
   else provisioning(ABC_off, ABCPeriod);
 }
 
-void CM1106::calibrateZero(int rangeCal)
+void CM1106::calibrate(int rangeCal)
 {
   if (rangeCal)
   {

@@ -3,7 +3,7 @@
   
   Version: 1.5.1
 
-  License: GPLv3
+  License: LGPLv3
 
   Library supporting CM1106 sensors
 -----------------------------------------------------*/
@@ -95,8 +95,11 @@ class CM1106
 	// disables calibration or sets ABCPeriod 
 	void autoCalibration(bool isON = true, byte ABCPeriod = 24);
 
-	// Calibrates "Zero" (Note: Zero refers to 400ppm for this sensor)
-	void calibrateZero(int rangeCal = 400);
+  /*  Calibrate Backwards compatability */
+  void inline calibrateZero(int rangeCal = 400){ calibrate(rangeCal); };
+
+  // Calibrates "Zero" (Note: Zero refers to 400ppm for this sensor)
+  void calibrate(int rangeCal = 400);
 
 	// use to show communication between CM1106 and  Device 
 	void printCommunication(bool isDec = true, bool isPrintComm = true);
