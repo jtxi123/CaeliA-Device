@@ -93,6 +93,8 @@ userMessage: Display a message for the user
 setLedState: Force LEDs on(2)/off(0)/warning_level(1)
 setWarnings: Define warning and danger levels
 autoCalibration: turn the autocalibration mode on=true or off=false
+version: the device will respond with the uptime and the version number
+updateFirmware: the device will load new firmware from the host and filedescriptor parameters
 ```
  
 # Schematics of the device:
