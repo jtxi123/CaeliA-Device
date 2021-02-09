@@ -3,6 +3,7 @@
 #define DBG_ENABLE_INFO
 //#define DBG_ENABLE_DEBUG
 #define DBG_ENABLE_VERBOSE
+//#define RIVAS
 //#define LP
 
 #include <ArduinoDebug.hpp>
@@ -53,20 +54,19 @@ WiFiUDP ntpUDP;
 //
 //tiempo UTC para tener hora local hy que modificar el
 // offset (0) con la función timeClient.setTimeOffset(long timeOffset)
-//NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
-NTPClient timeClient(ntpUDP);
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
+//NTPClient timeClient(ntpUDP);
 
 //needed for library for autoconnect
 #include <DNSServer.h>
 #include <WebServer.h>
 //Debug level for WiFiManager
-#define WM_DEBUG_LEVEL 0
+#define WM_DEBUG_LEVEL 1
 #include <WiFiManager.h>
 
 //SW type and version needed to check for SW updates
 #define SW_TYPE "CaeliA_esp32_co2"
-#define SW_VERSION 2
-//#define SW_SERVER "http://192.168.1.200:80/fota/fota.json"
+#define SW_VERSION 12
 // These values are only relevant for the first run. After that the default values are
 // those persisted in the config file.
 // If the sw_server is empty the sw will skip updates.
@@ -74,7 +74,7 @@ NTPClient timeClient(ntpUDP);
 // The json file contains the version available and the pointer to where the bin file is located
 // The sw will check the version compare it with the version in the actual sw and update if necessary.
 #define SW_FILE "/jtxi123/CaeliA-Rivas/main/FotaRivas/fota.json"
-// This is the
+// This is the client for https
 WiFiClientSecure clientForOta;
 secureEsp32FOTA sFota(SW_TYPE, SW_VERSION);
 // This levels can be changed using the RPC call
@@ -114,8 +114,8 @@ CM1106 myCM1106;                  //Constructor for library
 typedef enum SensorType
 {
   NOSENSOR = 0,     //No CO2 sensor
-  MHZ19sensor = 1,      // 0 MHZ19 sensor
-  CM1106sensor = 2        // 1 CM1106 sensor
+  MHZ19sensor = 1,      // MHZ19 sensor
+  CM1106sensor = 2        // CM1106 sensor
 } SensorType;
 SensorType co2Sensor = NOSENSOR;
 
@@ -240,7 +240,8 @@ unsigned char cancel_icon16x16[] =
 
 char token[40];
 // ThingsBoard server instance.
-#define THINGSBOARD_SERVER  "demo.thingsboard.io"
+#define THINGSBOARD_SERVER  "thingsboard.cloud"
+//#define THINGSBOARD_SERVER  "demo.thingsboard.io"
 //#define THINGSBOARD_SERVER  "192.168.1.100"
 #define TELEMETRY_TOPIC "v1/devices/me/telemetry"
 #define THINGSBOARD_PORT "1883"
@@ -256,6 +257,7 @@ char token[40];
 // Create the ThingsBoard client
 WiFiClient espClient;
 // Initialize ThingsBoard instance
+//ThingsBoardSized<256, 32> tb(espClient);
 ThingsBoard tb(espClient);
 // the Wifi radio's status
 int wifiStatus = WL_IDLE_STATUS;
@@ -300,6 +302,17 @@ int keyIndex;
 // Set to true if application is subscribed for the RPC messages.
 bool subscribed = false;
 
+// Watchdog if the system is a long time with no connection it will reboot
+#define TWD 3600 // 1 hour
+//#define TWD 1000 // 1000 sec
+//#define TWD 0 // Disable watchdog
+const unsigned long wdtTimeout = 1000 * TWD; //time in ms to trigger the watchdog
+hw_timer_t *timer = NULL;
+// In the case of watchdog interrupt, this function is called
+void IRAM_ATTR resetModule() {
+  ets_printf("reboot\n"); // When called it reboots
+  esp_restart();
+}
 
 // Check for software updates
 // The function execHTTPScheck reads the json document in the sw_server
@@ -349,6 +362,7 @@ RPC_Response processAutoCalibration(const RPC_Data &data)
 {
   DBG_INFO("Set auto calibration");
   configJson["auto_calibration"] = bool(data);
+  saveConfigFile(configJson);
 #ifdef MHZ19_CO2
   if (co2Sensor == MHZ19sensor) {
 
@@ -438,20 +452,50 @@ RPC_Response processSetWarnings(const RPC_Data & data)
 RPC_Response processUpdateFirmware(const RPC_Data & data)
 {
   DBG_INFO("Received the set updateFirmware RPC method");
-  sFota._host = (const char*)data["sw_server"]; 
+  configJson["sw_server"] = data["sw_server"];
+  configJson["sw_file"] = data["sw_file"];
+  saveConfigFile(configJson);
+  sFota._host = (const char*)data["sw_server"];
   sFota._descriptionOfFirmwareURL = (const char*)data["sw_file"]; //e.g. /my-fw-versions/firmware.json
   if (sFota.execHTTPSCheck()) sFota.executeOTA();
   //This line will only be excuted if the firmware update fails
   return RPC_Response("update", false);
 }
-RPC_Response processVersion(const RPC_Data &data)
+RPC_Response processUpdateParameters(const RPC_Data & data)
 {
-  char version[60];
-  DBG_INFO("Received the version RPC command");
-  //snprintf(version,sizeof(version), "SW_SERVER: %s SW_TYPE: %s SW_VERSION: %i",(const char*)configJson["sw_server"], SW_TYPE,SW_VERSION);
-  snprintf(version, sizeof(version), "Up time: %u, Version: %i",
-           (millis() - start_time) / 1000, SW_VERSION);
-  return RPC_Response("version", (const char*)version);
+  DBG_INFO("Received the set updateParameters RPC method");
+  // update only the parametes included in the call
+  JsonObjectConst parameters = data;
+  for (auto p : parameters)
+  {
+    //DBG_INFO("key: %s value: %4.1f", p.key().c_str(), float(p.value()));
+    configJson[p.key()] = p.value();
+  }
+  saveConfigFile(configJson); //save the configuration file
+  esp_restart(); //reboot
+  //This line will only be excuted if the firmware update fails
+  return RPC_Response("parameters", false);
+}
+
+RPC_Response processStatus(const RPC_Data &data)
+{
+  //char status[210];
+  char status[45];
+  //char sconfig[230];
+  DBG_INFO("Received the status RPC command");
+  //serializeJson(configJson,sconfig);
+  //Serial.println(sconfig);
+  //snprintf(status, sizeof(status), "Up time: %u s, Version: %i\nConfig :%s", (millis() - start_time) / 1000, SW_VERSION, sconfig);
+  if (data) {
+    if (configJson[(const char *)data] == 1 || configJson[(const char *)data] == 0)
+      return RPC_Response((const char *)data, configJson[(const char *)data]);
+    else return RPC_Response((const char *)data, (const char*)configJson[(const char *)data]);
+  }
+  //snprintf(status, sizeof(status), "Uptime: %us, Ver: %i sw_server: %s sw_file: %s autocal: %i",
+  //  (millis()-start_time)/1000, SW_VERSION,(const char*)configJson["sw_server"],
+  //  (const char*)configJson["sw_file"],(bool)configJson["auto_calibration"]);
+  snprintf(status, sizeof(status), "Uptime: %us, Ver: %i", (millis() - start_time) / 1000, SW_VERSION);
+  return RPC_Response("status", (const char*)status);
 }
 
 // RPC handlers for RPC
@@ -461,9 +505,10 @@ RPC_Callback callbacks[] = {
   {"autoCalibration",   processAutoCalibration },
   {"userMessage",       processUserMessage },
   {"setLedState",       processSetLedState },
-  {"setWarnings",       processSetWarnings },
+  //{"setWarnings",       processSetWarnings },
   {"updateFirmware",    processUpdateFirmware},
-  {"version",           processVersion}
+  {"updateParameters",  processUpdateParameters},
+  {"status",           processStatus}
 };
 #endif
 
@@ -697,7 +742,7 @@ bool publishMeasurement()
   }
   if (checkConnection()) {
     char telemetry_str[200];
-    serializeJson(telemetry, telemetry_str);
+    serializeJson(values, telemetry_str);
     DBG_INFO(telemetry_str);
     tb.sendTelemetryJson((const char*)telemetry_str);
     return true;
@@ -828,7 +873,10 @@ void InitWiFi()
   char sw_file[60];
   getToken();
   //WiFiManager
-
+  // For first time
+  //wm.preloadWiFi("Rivasciudad_InvitadosMAC", "");
+  //wm.preloadWiFi("VIRGIN-telco_DD34", "743884MHDX");
+  //wm.preloadWiFi("MiFibra-69A0", "cjFn5Q5J");
   //set config save notify callback
   wm.setSaveConfigCallback(saveConfigCallback);
 
@@ -865,6 +913,8 @@ void InitWiFi()
   //read configuration from FS json
 
   readConfigFile(configJson);
+  //configJson["mqtt_server"]="thingsboard.cloud";
+  //saveConfigFile(configJson);
 
   wm.setConfigPortalTimeout(180); //set 180s timeout for web portal
   WiFiManagerParameter mqttServer("Server_name", "mqtt_server", (const char*)configJson["mqtt_server"], 40);
@@ -878,11 +928,13 @@ void InitWiFi()
   WiFiManagerParameter swFile("Update_file", "Update_file", (const char*)configJson["sw_file"], 60);
   wm.addParameter(&swFile);
   const char _customHtml_checkbox[] = "type=\"checkbox\"";
-  WiFiManagerParameter autoCalibrate("checkbox", "Auto Calibration", "T", 2, _customHtml_checkbox);
+  WiFiManagerParameter autoCalibrate("checkbox", " Disable Auto Calibration", " " , 2, _customHtml_checkbox);
   wm.addParameter(&autoCalibrate);
 
   std::vector<const char *> menu = {"wifi", "erase", "restart", "exit"};
   wm.setMenu(menu); // custom menu, pass vector
+
+  wm.setWiFiAutoReconnect(true); //autoreconnect
 
   DBG_INFO("Starting portal if needed");
   if (displayPresent)
@@ -894,38 +946,55 @@ void InitWiFi()
   }
   wm.setConfigPortalTimeout(180);//set timeout to 180s
   wm.setConnectTimeout(60);
+  bool connected;
   if (digitalRead(PIN_CONFIGURE))
-    //if (false)
   {
-    wm.autoConnect(token);
+    if (!(connected = wm.autoConnect(token)))
+    {
+      //wm.preloadWiFi("MiFibra-69A0", "cjFn5Q5J");
+#ifdef RIVAS
+      wm.preloadWiFi("Rivasciudad_InvitadosMAC", "");
+#endif
+      connected = wm.autoConnect(token);
+    }
   }
   else
   {
     Serial.println("Forced configuration");
     SPIFFS.format(); //clean FS
-    wm.startConfigPortal(token); //Forced ap (user action)
+    connected = wm.startConfigPortal(token); //Forced ap (user action)
   }
-  //or use this for auto generated name ESP + ChipID
+  if (connected)
+  {
+    //if you get here you have connected to the WiFi
+    DBG_INFO("connected...yeey : )");
+    //Save the credentials just in case we need to reconnect
+    strcpy(ap_ssid, wm.getWiFiSSID().c_str());
+    strcpy(ap_pass, wm.getWiFiPass().c_str());
+  }
 
-  //save the custom parameters to FS
+  //save the custom parameters to FS (if shouldSaveConfig has beenchanged through the callback function)
   if (shouldSaveConfig) {
+    DBG_INFO("Update file: %s", sw_file);
 
     strcpy(mqtt_server, mqttServer.getValue());
     strcpy(mqtt_port, mqttPort.getValue());
     strcpy(telemetry_topic, telemetryTopic.getValue());
     strcpy(sw_server, swServer.getValue());
     strcpy(sw_file, swFile.getValue());
-    DBG_INFO("Update file: %s", sw_file);
 
     configJson["mqtt_server"] = mqtt_server;
     configJson["mqtt_port"] = mqtt_port;
     configJson["telemetry_topic"] = telemetry_topic;
     configJson["sw_server"] = sw_server;
     configJson["sw_file"] = sw_file;
-    configJson["auto_calibration"] = (autoCalibrate.getValue()[0] == 'T') ? true : false;
+
+    configJson["auto_calibration"] = (autoCalibrate.getValue()[0] == 'T') ? false : true;
+    
+    DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
     saveConfigFile(configJson);
   }
-
+  DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
 
 #ifdef DISPLAY
   if (displayPresent)
@@ -938,15 +1007,7 @@ void InitWiFi()
     display.display();
   }
 #endif
-  //if you get here you have connected to the WiFi
-  DBG_INFO("connected...yeey : )");
-  //Save the credentials just in case we need to reconnect
-  strcpy(ap_ssid, wm.getWiFiSSID().c_str());
-  strcpy(ap_pass, wm.getWiFiPass().c_str());
   WiFi.setSleep(true); //enable sleep mode
-  //WiFi.disconnect(); //disconnect and reconnect to make sure we are on STA mode
-  //WiFi.mode(WIFI_STA); // disable AP for modemsleep
-  //checkConnection();
 }
 
 //Check wifi connection. If WIFI connection is down try to reconnect
@@ -966,7 +1027,7 @@ bool checkConnection()
       display.drawBitmap(display.width() - 16, 0, cancel_icon16x16, 16, 16, 1);
       display.display();
     }
-    WiFi.begin(ap_ssid, ap_pass);
+    //WiFi.begin(ap_ssid, ap_pass);
     success = false;
   } else {
     if (displayPresent)
@@ -974,6 +1035,8 @@ bool checkConnection()
       display.drawBitmap(display.width() - 16, 0, wifi1_icon16x16, 16, 16, 1);
       display.display();
     }
+    // reset watchdog ince we are connected
+    if (wdtTimeout) timerWrite(timer, 0); //reset timer (feed watchdog);
 
     // Reconnect to ThingsBoard, if needed
     if (!tb.connected()) {
@@ -1018,6 +1081,14 @@ HardwareSerial mySerial(1);     // ESP32 serial port to communicate with sensor
 // Setup procedure
 void setup()
 {
+  // Program the watchdog if wdtTimeout is not 0
+  if (wdtTimeout)
+  {
+    timer = timerBegin(0, 8000, true);                //timer 0, demultiply by 8000 80Mhz clock = 0.1ms
+    timerAttachInterrupt(timer, &resetModule, true);  //attach callback
+    timerAlarmWrite(timer, wdtTimeout * 10 , false); //set time in units of 0.1 ms
+    timerAlarmEnable(timer); //enable interrupt
+  }
   //initialize configuration doc with preset values
   configJson["mqtt_server"] = THINGSBOARD_SERVER;
   configJson["mqtt_port"] = THINGSBOARD_PORT;
@@ -1153,7 +1224,7 @@ void loop() {
     //display.ssd1306_command(SSD1306_DISPLAYON);
     //DBG_INFO("Enable sleep before: %s", (WiFi.getSleep()) ? "True" : "False");
     measTask();
-    //DBG_INFO("Enable sleep after: %s", (WiFi.getSleep()) ? "True" : "False");
+    DBG_INFO("Enable sleep after: %s", (WiFi.getSleep()) ? "True" : "False");
     //WiFi.setSleep(true);
     last_time = current_time;
     //delay(5000);
