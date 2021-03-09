@@ -3,7 +3,8 @@
 #define DBG_ENABLE_INFO
 //#define DBG_ENABLE_DEBUG
 #define DBG_ENABLE_VERBOSE
-//#define RIVAS
+#define RIVAS
+#define WIFI_TELEMETRY
 //#define LP
 
 #include <ArduinoDebug.hpp>
@@ -20,26 +21,27 @@ DEBUG_INSTANCE(200, Serial);
 #include <esp32fota.h>
 
 // Certificate for root CA. Needed to conect using https for sw update
-char* test_root_ca = \
-                     "-----BEGIN CERTIFICATE-----\n"
-                     "MIIDxTCCAq2gAwIBAgIQAqxcJmoLQJuPC3nyrkYldzANBgkqhkiG9w0BAQUFADBsMQswCQYDVQQG\n"
-                     "EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSsw\n"
-                     "KQYDVQQDEyJEaWdpQ2VydCBIaWdoIEFzc3VyYW5jZSBFViBSb290IENBMB4XDTA2MTExMDAwMDAw\n"
-                     "MFoXDTMxMTExMDAwMDAwMFowbDELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZ\n"
-                     "MBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTErMCkGA1UEAxMiRGlnaUNlcnQgSGlnaCBBc3N1cmFu\n"
-                     "Y2UgRVYgUm9vdCBDQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMbM5XPm+9S75S0t\n"
-                     "Mqbf5YE/yc0lSbZxKsPVlDRnogocsF9ppkCxxLeyj9CYpKlBWTrT3JTWPNt0OKRKzE0lgvdKpVMS\n"
-                     "OO7zSW1xkX5jtqumX8OkhPhPYlG++MXs2ziS4wblCJEMxChBVfvLWokVfnHoNb9Ncgk9vjo4UFt3\n"
-                     "MRuNs8ckRZqnrG0AFFoEt7oT61EKmEFBIk5lYYeBQVCmeVyJ3hlKV9Uu5l0cUyx+mM0aBhakaHPQ\n"
-                     "NAQTXKFx01p8VdteZOE3hzBWBOURtCmAEvF5OYiiAhF8J2a3iLd48soKqDirCmTCv2ZdlYTBoSUe\n"
-                     "h10aUAsgEsxBu24LUTi4S8sCAwEAAaNjMGEwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB/wQFMAMB\n"
-                     "Af8wHQYDVR0OBBYEFLE+w2kD+L9HAdSYJhoIAu9jZCvDMB8GA1UdIwQYMBaAFLE+w2kD+L9HAdSY\n"
-                     "JhoIAu9jZCvDMA0GCSqGSIb3DQEBBQUAA4IBAQAcGgaX3NecnzyIZgYIVyHbIUf4KmeqvxgydkAQ\n"
-                     "V8GK83rZEWWONfqe/EW1ntlMMUu4kehDLI6zeM7b41N5cdblIZQB2lWHmiRk9opmzN6cN82oNLFp\n"
-                     "myPInngiK3BD41VHMWEZ71jFhS9OMPagMRYjyOfiZRYzy78aG6A9+MpeizGLYAiJLQwGXFK3xPkK\n"
-                     "mNEVX58Svnw2Yzi9RKR/5CYrCsSXaQ3pjOLAEFe4yHYSkVXySGnYvCoCWw9E1CAx2/S6cCZdkGCe\n"
-                     "vEsXCS+0yx5DaMkHJ8HSXPfqIbloEpw8nL+e/IBcm2PN7EeqJSdnoDfzAIJ9VNep+OkuE6N36B9K\n"
-                     "-----END CERTIFICATE-----\n" ;
+char* test_root_ca =
+  \
+  "-----BEGIN CERTIFICATE-----\n"
+  "MIIDxTCCAq2gAwIBAgIQAqxcJmoLQJuPC3nyrkYldzANBgkqhkiG9w0BAQUFADBsMQswCQYDVQQG\n"
+  "EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSsw\n"
+  "KQYDVQQDEyJEaWdpQ2VydCBIaWdoIEFzc3VyYW5jZSBFViBSb290IENBMB4XDTA2MTExMDAwMDAw\n"
+  "MFoXDTMxMTExMDAwMDAwMFowbDELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZ\n"
+  "MBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTErMCkGA1UEAxMiRGlnaUNlcnQgSGlnaCBBc3N1cmFu\n"
+  "Y2UgRVYgUm9vdCBDQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMbM5XPm+9S75S0t\n"
+  "Mqbf5YE/yc0lSbZxKsPVlDRnogocsF9ppkCxxLeyj9CYpKlBWTrT3JTWPNt0OKRKzE0lgvdKpVMS\n"
+  "OO7zSW1xkX5jtqumX8OkhPhPYlG++MXs2ziS4wblCJEMxChBVfvLWokVfnHoNb9Ncgk9vjo4UFt3\n"
+  "MRuNs8ckRZqnrG0AFFoEt7oT61EKmEFBIk5lYYeBQVCmeVyJ3hlKV9Uu5l0cUyx+mM0aBhakaHPQ\n"
+  "NAQTXKFx01p8VdteZOE3hzBWBOURtCmAEvF5OYiiAhF8J2a3iLd48soKqDirCmTCv2ZdlYTBoSUe\n"
+  "h10aUAsgEsxBu24LUTi4S8sCAwEAAaNjMGEwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB/wQFMAMB\n"
+  "Af8wHQYDVR0OBBYEFLE+w2kD+L9HAdSYJhoIAu9jZCvDMB8GA1UdIwQYMBaAFLE+w2kD+L9HAdSY\n"
+  "JhoIAu9jZCvDMA0GCSqGSIb3DQEBBQUAA4IBAQAcGgaX3NecnzyIZgYIVyHbIUf4KmeqvxgydkAQ\n"
+  "V8GK83rZEWWONfqe/EW1ntlMMUu4kehDLI6zeM7b41N5cdblIZQB2lWHmiRk9opmzN6cN82oNLFp\n"
+  "myPInngiK3BD41VHMWEZ71jFhS9OMPagMRYjyOfiZRYzy78aG6A9+MpeizGLYAiJLQwGXFK3xPkK\n"
+  "mNEVX58Svnw2Yzi9RKR/5CYrCsSXaQ3pjOLAEFe4yHYSkVXySGnYvCoCWw9E1CAx2/S6cCZdkGCe\n"
+  "vEsXCS+0yx5DaMkHJ8HSXPfqIbloEpw8nL+e/IBcm2PN7EeqJSdnoDfzAIJ9VNep+OkuE6N36B9K\n"
+  "-----END CERTIFICATE-----\n" ;
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -66,7 +68,7 @@ NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
 
 //SW type and version needed to check for SW updates
 #define SW_TYPE "CaeliA_esp32_co2"
-#define SW_VERSION 12
+#define SW_VERSION 24
 // These values are only relevant for the first run. After that the default values are
 // those persisted in the config file.
 // If the sw_server is empty the sw will skip updates.
@@ -74,9 +76,7 @@ NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
 // The json file contains the version available and the pointer to where the bin file is located
 // The sw will check the version compare it with the version in the actual sw and update if necessary.
 #define SW_FILE "/jtxi123/CaeliA-Rivas/main/FotaRivas/fota.json"
-// This is the client for https
-WiFiClientSecure clientForOta;
-secureEsp32FOTA sFota(SW_TYPE, SW_VERSION);
+
 // This levels can be changed using the RPC call
 #define WARN 700;
 #define DANGER 1000;
@@ -140,6 +140,7 @@ int dhtSensor = 0;
 Adafruit_BME280 bme; // I2C
 int bmeSensor = 0;
 #endif
+#define DEFAULT_TEMP_OFFSET "-2.5"
 
 
 #ifndef ESP32
@@ -168,7 +169,46 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define wifi1_icon16x16_height 16
 //variable to register the detection of a display at address 0x3C
 bool displayPresent = false; // Variable to annotate if disply was detected
-unsigned char wifi1_icon16x16[] =
+unsigned char wifi_icon16x2[][2] =
+{
+  0b11111111, 0b11111111, // ################
+  0b00000000, 0b00000000, //
+  0b01111111, 0b11111110, //  ##############
+  0b00000000, 0b00000000, //
+  0b00111111, 0b11111100, //   ############
+  0b00000000, 0b00000000, //
+  0b00011111, 0b11111000, //    ##########
+  0b00000000, 0b00000000, //
+  0b00001111, 0b11110000, //     ########
+  0b00000000, 0b00000000, //
+  0b00000111, 0b11100000, //      ######
+  0b00000000, 0b00000000, //
+  0b00000011, 0b11000000, //       ####
+  0b00000000, 0b00000000, //
+  0b00000001, 0b10000000, //        ##
+  0b00000000, 0b00000000, //
+};
+/*
+ * unsigned char wifi_icon16x2[][2] =
+{
+  0b11111111, 0b11111111, // ################
+  0b11111111, 0b11111111, // ################
+  0b01111111, 0b11111110, //  ##############
+  0b01111111, 0b11111110, //  ##############
+  0b00111111, 0b11111100, //   ############
+  0b00111111, 0b11111100, //   ############
+  0b00011111, 0b11111000, //    ##########
+  0b00011111, 0b11111000, //    ##########
+  0b00001111, 0b11110000, //     ########
+  0b00001111, 0b11110000, //     ########
+  0b00000111, 0b11100000, //      ######
+  0b00000111, 0b11100000, //      ######
+  0b00000011, 0b11000000, //       ####
+  0b00000011, 0b11000000, //       ####
+  0b00000001, 0b10000000, //        ##
+  0b00000001, 0b10000000, //        ##
+};
+unsigned char wifi_icon16x16[][32] =
 {
   0b00000000, 0b00000000, //
   0b00000111, 0b11100000, //      ######
@@ -186,8 +226,93 @@ unsigned char wifi1_icon16x16[] =
   0b00000000, 0b00000000, //
   0b00000000, 0b00000000, //
   0b00000000, 0b00000000, //
-};
 
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00001111, 0b11110000, //     ########
+  0b00011111, 0b11111000, //    ##########
+  0b00110000, 0b00001100, //   ##        ##
+  0b00100111, 0b11100100, //   #  ######  #
+  0b00001111, 0b11110000, //     ########
+  0b00011000, 0b00011000, //    ##      ##
+  0b00000011, 0b11000000, //       ####
+  0b00000111, 0b11100000, //      ######
+  0b00000100, 0b00100000, //      #    #
+  0b00000001, 0b10000000, //        ##
+  0b00000001, 0b10000000, //        ##
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000111, 0b11100000, //      ######
+  0b00001111, 0b11110000, //     ########
+  0b00011000, 0b00011000, //    ##      ##
+  0b00000011, 0b11000000, //       ####
+  0b00000111, 0b11100000, //      ######
+  0b00000100, 0b00100000, //      #    #
+  0b00000001, 0b10000000, //        ##
+  0b00000001, 0b10000000, //        ##
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000111, 0b11100000, //      ######
+  0b00001000, 0b00010000, //     #      #
+  0b00000011, 0b11000000, //       ####
+  0b00000111, 0b11100000, //      ######
+  0b00000100, 0b00100000, //      #    #
+  0b00000001, 0b10000000, //        ##
+  0b00000001, 0b10000000, //        ##
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000011, 0b11000000, //       ####
+  0b00000111, 0b11100000, //      ######
+  0b00000100, 0b00100000, //      #    #
+  0b00000001, 0b10000000, //        ##
+  0b00000001, 0b10000000, //        ##
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000001, 0b10000000, //        ##
+  0b00000001, 0b10000000, //        ##
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+  0b00000000, 0b00000000, //
+};
+*/
 #define arrow_up_icon16x16_width 16
 #define arrow_up_icon16x16_height 16
 unsigned char arrow_up_icon16x16[] =
@@ -264,6 +389,8 @@ int wifiStatus = WL_IDLE_STATUS;
 
 DynamicJsonDocument configJson(1024); //json document to store config parameters
 
+//Temperature Offset
+float Toffset = 0;
 
 //Pins to control the LEDs
 #ifdef MINID1
@@ -293,8 +420,13 @@ unsigned long display_time;
 unsigned long start_time; //record the initial millis() to wait for sensor stabilization
 unsigned long bootTimeStamp;
 
-//Telemetry Json document
-DynamicJsonDocument telemetry(1024);
+struct CONNECTION {
+  bool wifi = false;
+  int wifiStrength = 0;
+  bool mqtt = false;
+  bool rpc = false;
+} connStatus;
+
 //Telemetry telemetry[MAX_KEYS];
 int keyIndex;
 
@@ -313,6 +445,25 @@ void IRAM_ATTR resetModule() {
   ets_printf("reboot\n"); // When called it reboots
   esp_restart();
 }
+// Take measurements of the Wi-Fi strength and return the average result.
+//int fake = 0;
+int getStrength(bool raw = false) {
+  int rssi = 0;
+  int strength = 0;
+  rssi = WiFi.RSSI();
+  if (!raw) {
+    if (rssi > -55) strength = 7;
+    else if (rssi > -59) strength = 6;
+    else if (rssi > -63) strength = 5;
+    else if (rssi > -67) strength = 4;
+    else if (rssi > -71) strength = 3;
+    else if (rssi > -75) strength = 2;
+    else if (rssi > -79) strength = 1;
+    //strength = fake++ % 8;
+    DBG_INFO("WiFi level: %i", strength);
+  } else strength = rssi;
+  return strength;
+}
 
 // Check for software updates
 // The function execHTTPScheck reads the json document in the sw_server
@@ -321,20 +472,45 @@ void IRAM_ATTR resetModule() {
 // the new version.
 unsigned long last_m = 0;
 #define UPDATE_PERIOD 60 //seconds
-void updateFW()
+void updateFW(bool force = false)
 {
   unsigned long current_m;
+  // This is the client for https
+  WiFiClientSecure clientForOta;
+  secureEsp32FOTA sFota(SW_TYPE, SW_VERSION);
+  //ennable uploading over the air
+  //register the server where to check if firmware needs updating
+
+  sFota._host = (const char*)configJson["sw_server"]; //e.g. example.com
+  sFota._descriptionOfFirmwareURL = (const char*)configJson["sw_file"]; //e.g. /my-fw-versions/firmware.json
+  sFota._certificate = test_root_ca;
+  sFota.clientForOta = clientForOta;
+
   current_m = millis();
   if (last_m == 0) last_m = current_m; //first execution
-  if ((current_m - last_m) / 1000 > UPDATE_PERIOD)
+  if ((current_m - last_m) / 1000 > UPDATE_PERIOD || force)
   {
-    DBG_INFO("Check for updates Current Type : %s  Version : %i", SW_TYPE, SW_VERSION);
-    DBG_INFO("Host: %s", (const char*)configJson["sw_server"]);
-    DBG_INFO("Update file: %s", (const char*)configJson["sw_file"]);
     // Try update only if server is defined
     if (((const char*)(configJson["sw_server"]))[0])
     {
-      if (sFota.execHTTPSCheck()) sFota.executeOTA();
+      DBG_INFO("Check for updates Current Type : %s  Version : %i", SW_TYPE, SW_VERSION);
+      DBG_INFO("Host: %s", (const char*)configJson["sw_server"]);
+      DBG_INFO("Update file: %s", (const char*)configJson["sw_file"]);
+      if (sFota.execHTTPSCheck())
+      {
+#ifdef DISPLAY
+        if (displayPresent)
+        {
+          display.setTextSize(2);
+          display.clearDisplay();
+          display.setCursor(0, 0);
+          display.println("Carga SW");
+          display.println("Espera");
+          display.display();
+        }
+#endif
+        sFota.executeOTA();
+      }
     }
     last_m = current_m;
   }
@@ -346,7 +522,7 @@ void updateFW()
 // See https://arduinojson.org/v5/api/jsonvariant/subscript/ for more details
 // Function to modify offset to adjust co2 measurments.
 int co2Offset = 0;
-RPC_Response processSetOffset(const RPC_Data &data)
+RPC_Response processSetOffset(const RPC_Data & data)
 {
   // Process data
   co2Offset += int(data); //Change co2 offset
@@ -358,7 +534,7 @@ RPC_Response processSetOffset(const RPC_Data &data)
 }
 
 // Function to turn on or off auto calibration.
-RPC_Response processAutoCalibration(const RPC_Data &data)
+RPC_Response processAutoCalibration(const RPC_Data & data)
 {
   DBG_INFO("Set auto calibration");
   configJson["auto_calibration"] = bool(data);
@@ -381,7 +557,7 @@ RPC_Response processAutoCalibration(const RPC_Data &data)
 // This flag will be raised if calibration is requested.
 // it will be reset after calibration
 bool calibrationFlag;
-RPC_Response processCalibration(const RPC_Data &data)
+RPC_Response processCalibration(const RPC_Data & data)
 {
   calibrationFlag = true;
   DBG_INFO("Received the autoCalibration RPC command");
@@ -392,7 +568,7 @@ RPC_Response processCalibration(const RPC_Data &data)
 // Function to receive a message with a severity level.
 String userMessage = "";
 int messageLevel = 0;
-RPC_Response processUserMessage(const RPC_Data &data)
+RPC_Response processUserMessage(const RPC_Data & data)
 {
   const char* message;
 
@@ -414,7 +590,7 @@ RPC_Response processUserMessage(const RPC_Data &data)
 
 int led_state[3] = {1, 1, 1};
 
-RPC_Response processSetLedState(const RPC_Data &data)
+RPC_Response processSetLedState(const RPC_Data & data)
 {
   Serial.println("Received the set setLedState RPC method");
   serializeJson(data, Serial);
@@ -455,9 +631,11 @@ RPC_Response processUpdateFirmware(const RPC_Data & data)
   configJson["sw_server"] = data["sw_server"];
   configJson["sw_file"] = data["sw_file"];
   saveConfigFile(configJson);
-  sFota._host = (const char*)data["sw_server"];
-  sFota._descriptionOfFirmwareURL = (const char*)data["sw_file"]; //e.g. /my-fw-versions/firmware.json
-  if (sFota.execHTTPSCheck()) sFota.executeOTA();
+  updateFW(true);
+  //esp_restart();
+  //sFota._host = (const char*)data["sw_server"];
+  //sFota._descriptionOfFirmwareURL = (const char*)data["sw_file"]; //e.g. /my-fw-versions/firmware.json
+  //if (sFota.execHTTPSCheck()) sFota.executeOTA();
   //This line will only be excuted if the firmware update fails
   return RPC_Response("update", false);
 }
@@ -473,11 +651,12 @@ RPC_Response processUpdateParameters(const RPC_Data & data)
   }
   saveConfigFile(configJson); //save the configuration file
   esp_restart(); //reboot
+  //updateFW(true);
   //This line will only be excuted if the firmware update fails
   return RPC_Response("parameters", false);
 }
 
-RPC_Response processStatus(const RPC_Data &data)
+RPC_Response processStatus(const RPC_Data & data)
 {
   //char status[210];
   char status[45];
@@ -525,20 +704,23 @@ RPC_Callback callbacks[] = {
 
 //  Task to reads & precess measurements from sensors
 
+//Telemetry Json document
+StaticJsonDocument<128> telemetry;
 void measTask() {
-
   DBG_INFO("measTask started");
-  //if(displayPresent) display.clearDisplay();
-  readMeasurement();
-  displayMeasurement();
-  publishMeasurement();
-  showLeds();
+  if (ESP.getFreeHeap() < 10000) esp_restart(); //There are some memory leaks
+  DBG_INFO("Memoria libre: %u", ESP.getFreeHeap());
+  telemetry.clear(); //clear the telemetry JsonDocument
+  readMeasurement(telemetry);
+  publishMeasurement(telemetry);
+  displayMeasurement(telemetry);
+  showLeds(telemetry);
   calibration();
   DBG_INFO("measTask ended");
 }
 bool displayState = true;
 //Activate leds
-void showLeds()
+void showLeds(JsonDocument &telemetry)
 {
   //when enabled==1
   //led 0 lights if co2 value is above danger level (red)
@@ -616,7 +798,7 @@ void calibration() //Calibrate if needed
 
 
 //  Reads data from sensors
-void readMeasurement()
+void readMeasurement(JsonDocument &telemetry)
 {
   int co2_ppm; //concertration of CO2
   float co2_t; //Temperature of the sensor (not very accurate as sensor generates heat)
@@ -686,15 +868,15 @@ void readMeasurement()
       DBG_ERROR("DHT11 error status : %s", dht.getStatusString());
     } else {
       newValues = dht.getTempAndHumidity();
-      heatIndex = dht.computeHeatIndex(newValues.temperature, newValues.humidity);
-      dewPoint = dht.computeDewPoint(newValues.temperature, newValues.humidity);
-      cr = dht.getComfortRatio(cf, newValues.temperature, newValues.humidity);
+      //heatIndex = dht.computeHeatIndex(newValues.temperature, newValues.humidity);
+      //dewPoint = dht.computeDewPoint(newValues.temperature, newValues.humidity);
+      //cr = dht.getComfortRatio(cf, newValues.temperature, newValues.humidity);
 
       //record key value pairs on the measurementes array (to be published)
-      values["temperature"] = newValues.temperature;
+      values["temperature"] = newValues.temperature + Toffset;
       keyIndex++;
-
-      values["humidity"] = newValues.humidity;
+      values["humidity"] = adjRH(values["temperature"], newValues.humidity, Toffset);
+      //values["humidity"] = newValues.humidity;
       keyIndex++;
       // Only for debugging. No real interest in publishing raw and calculated readings
       /*
@@ -713,13 +895,13 @@ void readMeasurement()
 #ifdef BME280
   if (bmeSensor)
   {
-    values["temperature"] = bme.readTemperature();
+    values["temperature"] = bme.readTemperature() + Toffset;
     keyIndex++;
 
     values["pressure"] = bme.readPressure();
     keyIndex++;
 
-    values["humidity"] = bme.readHumidity();
+    values["humidity"] = adjRH(double(values["temperature"]), double(bme.readHumidity()), double(Toffset));
     keyIndex++;
     // Only for debugging. No real interest in publishing raw and calculated readings
     /*
@@ -728,11 +910,32 @@ void readMeasurement()
     */
   }
 #endif
+#ifdef WIFI_TELEMETRY
+  values["wifi_db"] = getStrength(true);
+  keyIndex++;
+#endif
+}
 
+double adjRH(double tempAdjusted, double RH, double tempOffset)
+{
+  double LRV, Temp, T0, E0, Es, Esadjusted, RHadjusted;
+  LRV = 5423;//K
+  T0 = 273.15; //K
+  //E0 = 0.611; //kPa
+  RH = RH / 100;
+  tempAdjusted = tempAdjusted + T0;
+  //Es = E0 * exp(LRV * (1 / T0 - 1 / Temp));
+  Temp = tempAdjusted - tempOffset;
+  //Esadjusted = E0 * exp(LRV * (1 / T0 - 1 / tempAdjusted));
+  //RHadjusted = RH * Esadjusted / Es;
+  RHadjusted = RH * exp(LRV * (1 / tempAdjusted - 1 / Temp));
+  DBG_VERBOSE("RH %.1f%%, RH adj %.1f%%, Temp %.1f, Delta T %.1f",
+              RH * 100, RHadjusted * 100, tempAdjusted, tempOffset);
+  return RHadjusted * 100;
 }
 
 //  Publishes the measurements to the mqtt broker
-bool publishMeasurement()
+bool publishMeasurement(JsonDocument &telemetry)
 {
   //if (keyIndex==0) return true;
   DBG_INFO("Start publishing");
@@ -743,7 +946,7 @@ bool publishMeasurement()
   if (checkConnection()) {
     char telemetry_str[200];
     serializeJson(values, telemetry_str);
-    DBG_INFO(telemetry_str);
+    DBG_VERBOSE(telemetry_str);
     tb.sendTelemetryJson((const char*)telemetry_str);
     return true;
   }
@@ -751,9 +954,8 @@ bool publishMeasurement()
 }
 //Function to display the measurements of the measuments array
 
-void displayMeasurement()
+void displayMeasurement(JsonDocument &telemetry)
 {
-
 #ifdef DISPLAY
   if (displayPresent)
   {
@@ -782,6 +984,15 @@ void displayMeasurement()
       display.println(line);
       j++;
     }
+    if (connStatus.wifi) {
+      display.drawBitmap(display.width() - 16, 16 - (connStatus.wifiStrength+1) * 2,
+                         wifi_icon16x2[16 - (connStatus.wifiStrength+1)*2], 16, (connStatus.wifiStrength + 1) * 2, 1);
+      //display.setCursor(display.width() - 16, 16);
+      //display.printf("%1i", connStatus.wifiStrength);
+    }
+    else display.drawBitmap(display.width() - 16, 0, cancel_icon16x16, 16, 16, 1);
+    if (connStatus.mqtt) display.drawBitmap(display.width() - 16, 20, arrow_up_icon16x16, 16, 16, 1);
+    else display.drawBitmap(display.width() - 16, 20, cancel_icon16x16, 16, 16, 1);
     display.setTextSize(1);
     display.setCursor(0, (DISPLAY_LINES - 1) * 8); //last row
     if (userMessage != "") display.println(userMessage);
@@ -789,10 +1000,7 @@ void displayMeasurement()
     display.display();
   }
 #endif
-
 }
-
-
 
 bool shouldSaveConfig = false; //flag is changed by Callback function
 
@@ -815,7 +1023,7 @@ void getToken()
 //The configuration parameters are stored in the config.json file
 //in the the SPIF file system as a serialized json document.
 //The function readd the configuration file into a json document
-bool readConfigFile(JsonDocument& doc)
+bool readConfigFile(JsonDocument & doc)
 {
   bool success = true;
   //DynamicJsonDocument doc(1024);
@@ -835,7 +1043,10 @@ bool readConfigFile(JsonDocument& doc)
       }
     }
   } else {
-    DBG_ERROR("failed to mount FS");
+    DBG_ERROR("failed to mount FS...formatting and remount");
+    SPIFFS.format();
+    if (SPIFFS.begin()) DBG_INFO("mounting FS...");
+    else DBG_ERROR("failed to mount FS... HW problem");
     success = false;
   }
   //end read
@@ -844,7 +1055,7 @@ bool readConfigFile(JsonDocument& doc)
 }
 
 //write the configuration file from a json document
-bool saveConfigFile(JsonDocument& doc)
+bool saveConfigFile(JsonDocument & doc)
 {
   bool success = true;
   DBG_INFO("saving config");
@@ -871,12 +1082,12 @@ void InitWiFi()
   char telemetry_topic[40];
   char sw_server[40];
   char sw_file[60];
+  char temp_offset[8];
   getToken();
   //WiFiManager
   // For first time
-  //wm.preloadWiFi("Rivasciudad_InvitadosMAC", "");
-  //wm.preloadWiFi("VIRGIN-telco_DD34", "743884MHDX");
-  //wm.preloadWiFi("MiFibra-69A0", "cjFn5Q5J");
+  //wm.preloadWiFi("VIRGIN - telco_DD34", "743884MHDX");
+  //wm.preloadWiFi("MiFibra - 69A0", "cjFn5Q5J");
   //set config save notify callback
   wm.setSaveConfigCallback(saveConfigCallback);
 
@@ -913,21 +1124,24 @@ void InitWiFi()
   //read configuration from FS json
 
   readConfigFile(configJson);
-  //configJson["mqtt_server"]="thingsboard.cloud";
+  wm.preloadWiFi((const char*)configJson["ap_ssid"], (const char*)configJson["ap_pass"]);
+  if (!configJson["temp_offset"]) configJson["temp_offset"] = DEFAULT_TEMP_OFFSET;
   //saveConfigFile(configJson);
 
   wm.setConfigPortalTimeout(180); //set 180s timeout for web portal
   WiFiManagerParameter mqttServer("Server_name", "mqtt_server", (const char*)configJson["mqtt_server"], 40);
   wm.addParameter(&mqttServer);
-  WiFiManagerParameter mqttPort("Port_number", "mqtt_port", (const char*)configJson["mqtt_port"], 6);
-  wm.addParameter(&mqttPort);
-  WiFiManagerParameter telemetryTopic("Telemetry", "Telemetry_topic", (const char*)configJson["telemetry_topic"], 40);
-  wm.addParameter(&telemetryTopic);
+  //WiFiManagerParameter mqttPort("Port_number", "mqtt_port", (const char*)configJson["mqtt_port"], 6);
+  //wm.addParameter(&mqttPort);
+  //WiFiManagerParameter telemetryTopic("Telemetry", "Telemetry_topic", (const char*)configJson["telemetry_topic"], 40);
+  //wm.addParameter(telemetryTopic);
   WiFiManagerParameter swServer("Update_host", "Update_Server", (const char*)configJson["sw_server"], 40);
   wm.addParameter(&swServer);
   WiFiManagerParameter swFile("Update_file", "Update_file", (const char*)configJson["sw_file"], 60);
   wm.addParameter(&swFile);
-  const char _customHtml_checkbox[] = "type=\"checkbox\"";
+  WiFiManagerParameter tempOffset("Temp_offset", "Temp_offset", (const char*)configJson["temp_offset"], 6);
+  wm.addParameter(&tempOffset);
+  const char _customHtml_checkbox[] = "type = \"checkbox\"";
   WiFiManagerParameter autoCalibrate("checkbox", " Disable Auto Calibration", " " , 2, _customHtml_checkbox);
   wm.addParameter(&autoCalibrate);
 
@@ -964,6 +1178,30 @@ void InitWiFi()
     SPIFFS.format(); //clean FS
     connected = wm.startConfigPortal(token); //Forced ap (user action)
   }
+
+  //save the custom parameters to FS (if shouldSaveConfig has beenchanged through the callback function)
+  if (shouldSaveConfig) {
+    DBG_INFO("Update file: %s", sw_file);
+    configJson.clear();//Clear all previous values
+    strcpy(mqtt_server, mqttServer.getValue());
+    //strcpy(mqtt_port, mqttPort.getValue());
+    //strcpy(telemetry_topic, telemetryTopic.getValue());
+    strcpy(sw_server, swServer.getValue());
+    strcpy(sw_file, swFile.getValue());
+    strcpy(temp_offset, tempOffset.getValue());
+
+    configJson["mqtt_server"] = mqtt_server;
+    //configJson["mqtt_port"] = mqtt_port;
+    //configJson["telemetry_topic"] = telemetry_topic;
+    configJson["sw_server"] = sw_server;
+    configJson["sw_file"] = sw_file;
+    configJson["temp_offset"] = temp_offset;
+
+    configJson["auto_calibration"] = (autoCalibrate.getValue()[0] == 'T') ? false : true;
+
+    DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
+    //saveConfigFile(configJson);
+  }
   if (connected)
   {
     //if you get here you have connected to the WiFi
@@ -971,42 +1209,12 @@ void InitWiFi()
     //Save the credentials just in case we need to reconnect
     strcpy(ap_ssid, wm.getWiFiSSID().c_str());
     strcpy(ap_pass, wm.getWiFiPass().c_str());
-  }
-
-  //save the custom parameters to FS (if shouldSaveConfig has beenchanged through the callback function)
-  if (shouldSaveConfig) {
-    DBG_INFO("Update file: %s", sw_file);
-
-    strcpy(mqtt_server, mqttServer.getValue());
-    strcpy(mqtt_port, mqttPort.getValue());
-    strcpy(telemetry_topic, telemetryTopic.getValue());
-    strcpy(sw_server, swServer.getValue());
-    strcpy(sw_file, swFile.getValue());
-
-    configJson["mqtt_server"] = mqtt_server;
-    configJson["mqtt_port"] = mqtt_port;
-    configJson["telemetry_topic"] = telemetry_topic;
-    configJson["sw_server"] = sw_server;
-    configJson["sw_file"] = sw_file;
-
-    configJson["auto_calibration"] = (autoCalibrate.getValue()[0] == 'T') ? false : true;
-    
-    DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
+    configJson["ap_ssid"] = ap_ssid;
+    configJson["ap_pass"] = ap_pass;
     saveConfigFile(configJson);
   }
   DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
 
-#ifdef DISPLAY
-  if (displayPresent)
-  {
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.setTextSize(2);
-    display.println("Esperando medidas");
-    display.setTextSize(1);
-    display.display();
-  }
-#endif
   WiFi.setSleep(true); //enable sleep mode
 }
 
@@ -1016,62 +1224,53 @@ void InitWiFi()
 bool checkConnection()
 // Check connection to Wifi and TB. If necessary reconnect
 {
-
   bool success = true; //succces retunt code
   //Check if we are connected
   if (WiFi.status() != WL_CONNECTED)
   {
     DBG_INFO("Disconnected from AP");
-    if (displayPresent)
-    {
-      display.drawBitmap(display.width() - 16, 0, cancel_icon16x16, 16, 16, 1);
-      display.display();
-    }
     //WiFi.begin(ap_ssid, ap_pass);
+    connStatus.wifi = false;
+    connStatus.mqtt = false;
+    connStatus.rpc = false;
     success = false;
   } else {
-    if (displayPresent)
-    {
-      display.drawBitmap(display.width() - 16, 0, wifi1_icon16x16, 16, 16, 1);
-      display.display();
-    }
-    // reset watchdog ince we are connected
+    connStatus.wifi = true;
+    connStatus.wifiStrength = getStrength(false);
+    DBG_INFO("WiFI Signal Strength: %i", getStrength(true));
+    // reset watchdog if we are connected
     if (wdtTimeout) timerWrite(timer, 0); //reset timer (feed watchdog);
-
+  }
+  if (success)
+  {
     // Reconnect to ThingsBoard, if needed
     if (!tb.connected()) {
-      if (displayPresent)
-      {
-        display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
-        display.display();
-      }
-      success = false;
-      // Connect to the ThingsBoard
+      // reconnect to the ThingsBoard
       DBG_INFO("Connecting to: %s with token: %s", (const char*)configJson["mqtt_server"], token);
-
       if (!tb.connect(configJson["mqtt_server"], token)) {
         DBG_WARNING("Failed to connect to ThingsBoard ");
-        success = false;
+        connStatus.mqtt = false;
+        connStatus.rpc = false;
+        //success = false;
       }
 #ifdef RPC
-      DBG_INFO("Subscribing for RPC...");
-      // Perform a subscription. All consequent data processing will happen in
-      // callbacks as denoted by callbacks[] array.
-      if (!tb.RPC_Subscribe(callbacks, COUNT_OF(callbacks))) {
-        DBG_WARNING("Failed to subscribe for RPC");
-        success = false;
+      else
+      {
+        connStatus.mqtt = true;
+        DBG_INFO("Subscribing for RPC...");
+        // Perform a subscription. All consequent data processing will happen in
+        // callbacks as denoted by callbacks[] array.
+        if (!tb.RPC_Subscribe(callbacks, COUNT_OF(callbacks))) {
+          DBG_WARNING("Failed to subscribe for RPC");
+          success = false;
+          connStatus.rpc = false;
+        } else {
+          DBG_INFO("Subscribe done");
+          connStatus.rpc = true;
+        }
       }
-      DBG_INFO("Subscribe done");
 #endif
-    }
-#ifdef DISPLAY
-    if (displayPresent)
-    {
-      if (success) display.drawBitmap(display.width() - 16, 16, arrow_up_icon16x16, 16, 16, 1);
-      else display.drawBitmap(display.width() - 16, 16, cancel_icon16x16, 16, 16, 1);
-      display.display();
-    }
-#endif
+    } else connStatus.mqtt = true;
   }
   return success;
 }
@@ -1095,6 +1294,8 @@ void setup()
   configJson["telemetry_topic"] = TELEMETRY_TOPIC;
   configJson["sw_server"] = SW_SERVER;
   configJson["sw_file"] = SW_FILE;
+  configJson["temp_offset"] = DEFAULT_TEMP_OFFSET;
+
   char myVersion[11];              // version for C02 sensor
   start_time = millis(); //power on time
   Serial.begin(SERIAL_DEBUG_BAUD);
@@ -1124,19 +1325,14 @@ void setup()
   }
 #endif
   InitWiFi();
+  updateFW(true);
   timeClient.begin();
   timeClient.update();
   bootTimeStamp = timeClient.getEpochTime();
   DBG_INFO("Boot time: %s UTC", timeClient.getFormattedTime());
+  Toffset = String((const char*)configJson["temp_offset"]).toFloat();
+  DBG_INFO("Offset Temp: %.1f ", Toffset);
 
-
-  //ennable uploading over the air
-  //register the server where to check if firmware needs updating
-
-  sFota._host = (const char*)configJson["sw_server"]; //e.g. example.com
-  sFota._descriptionOfFirmwareURL = (const char*)configJson["sw_file"]; //e.g. /my-fw-versions/firmware.json
-  sFota._certificate = test_root_ca;
-  sFota.clientForOta = clientForOta;
 
   //esp32FOTA.checkURL = String((const char*)configJson["sw_server"]);
   // initialize control pins for leds
@@ -1197,22 +1393,35 @@ void setup()
     DBG_INFO("BME280 sensor initialized");
   }
 #endif
-  //Initiallize measurement tasks
-  checkConnection();
 
 #ifdef LP
   setCpuFrequencyMhz(80); //Set CPU clock to 80MHz to save power
 #endif
   DBG_INFO("CPU Frequency : %i MHz", getCpuFrequencyMhz()); //Get CPU clock
   //display.ssd1306_command(SSD1306_DISPLAYOFF);
+
+
+  last_time = millis();
+  display_time = millis();
+  //Initiallize measurement tasks
+  checkConnection();
+#ifdef DISPLAY
+  if (displayPresent)
+  {
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.setTextSize(2);
+    display.println("Esperando medidas");
+    display.setTextSize(1);
+    display.display();
+  }
+#endif
   //wait for warmup
   if (millis() - start_time < WARMUPTIME * 1000)
   {
     DBG_INFO("Waiting for : %i seconds for sensor warmup", (WARMUPTIME * 1000 - (millis() - start_time)) / 1000);
     delay((WARMUPTIME * 1000 - (millis() - start_time)));
   }
-  last_time = millis();
-  display_time = millis();
   DBG_INFO("-----------Starting measurement cycle-------------------");
 }
 
@@ -1221,14 +1430,10 @@ void loop() {
   unsigned long current_time = millis();
   if (current_time - last_time > MEAS_PERIOD * 1000)
   {
-    //display.ssd1306_command(SSD1306_DISPLAYON);
-    //DBG_INFO("Enable sleep before: %s", (WiFi.getSleep()) ? "True" : "False");
     measTask();
-    DBG_INFO("Enable sleep after: %s", (WiFi.getSleep()) ? "True" : "False");
+    DBG_VERBOSE("Enable sleep : %s", (WiFi.getSleep()) ? "True" : "False");
     //WiFi.setSleep(true);
     last_time = current_time;
-    //delay(5000);
-    //display.ssd1306_command(SSD1306_DISPLAYOFF);
   }
 #ifdef LP
   if (current_time - display_time > WAKE_PERIOD * 1000)
@@ -1241,23 +1446,36 @@ void loop() {
 
   if (!digitalRead(PIN_CONFIGURE))
   {
-    DBG_INFO("Config PIN pressed");
     display.ssd1306_command(SSD1306_DISPLAYON);
     displayState = true;
     //trigger calibration if button is pressed for more than 5 secs
     if (pressed) {
       if (current_time - display_time > 5000) calibrationFlag = true;
-    } else display_time = current_time;
+    }
+    else
+    {
+      DBG_INFO("Config PIN pressed");
+      display_time = current_time;
+    }
     pressed = true;
   } else pressed = false;
-
-  updateFW(); //check for sw updates
+  if (WiFi.status() == WL_CONNECTED) {
+    updateFW(); //check for sw updates
 #ifdef RPC
-  //check for incomming messages
-  tb.loop();
+    //check for incomming messages
+    if (connStatus.rpc) tb.loop();
 #endif
-  delay(1000);
-  //yield();
+  }
+  //esp_sleep_enable_timer_wakeup(100000); //0.1 seconds
+  //esp_light_sleep_start();
+
+  //display.setTextSize(2);
+  //display.setCursor(display.width() - 16, 16);
+  //display.printf("%1i", getStrength());
+  //display.setTextSize(1);
+  //display.display();
+  delay(100);
+  yield();
 }
 #ifdef MHZ19_CO2
 void setRange(int range)
