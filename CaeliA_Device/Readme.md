@@ -3,7 +3,8 @@
 ## The following libraries have bee used:
 
 * MH-Z19 v 1.5.3 by Jonathan Dempsey:
-* WifiManager v2.04 by tzapu
+* WifiManager v2.04 by Tzapu
+* NTPclient 3.2.0 by Fabrice Weinberg
 * DHT Sensor Library by Adafruit v1.4.1
 * Adafruit SSD1306 Library by Adafruit v2.4.1
 * esp32FOTA Library by Chris Joice v 0.1.2
