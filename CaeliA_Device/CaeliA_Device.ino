@@ -3,7 +3,7 @@
 #define DBG_ENABLE_INFO
 //#define DBG_ENABLE_DEBUG
 #define DBG_ENABLE_VERBOSE
-#define RIVAS
+//#define RIVAS
 #define WIFI_TELEMETRY
 //#define LP
 
