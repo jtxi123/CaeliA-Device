@@ -1,0 +1,1315 @@
+#define DBG_ENABLE_ERROR
+#define DBG_ENABLE_WARNING
+#define DBG_ENABLE_INFO
+//#define DBG_ENABLE_DEBUG
+#define DBG_ENABLE_VERBOSE
+#define RIVAS
+#define WIFI_TELEMETRY
+//#define LP
+
+#include <107-Arduino-Debug.hpp>
+DEBUG_INSTANCE(200, Serial);
+//#define MINID1
+#define DEVKIT
+#include "esp32-hal-cpu.h"
+
+#include <FS.h>
+#include <SPIFFS.h>
+
+#include <WiFiClientSecure.h>
+#include <esp32fota.h>
+
+#include "root_ca.h"
+
+// esp32fota settings
+int firmware_version_major = 34;
+int firmware_version_minor = 0;
+int firmware_version_patch = 1;
+
+//#if !defined FOTA_URL
+//  #define FOTA_URL "https://raw.githubusercontent.com/jtxi123/CaeliA-Rivas/main/FotaRivas/test.json"
+//#endif
+char *firmware_name = "CaeliA_esp32_co2";
+const bool check_signature = false;
+const bool disable_security = false;
+// for debug only
+const char *description = "CaeliA firmware";
+
+const char *fota_debug_fmt = R"DBG_FMT(
+***************** STAGE %s *****************
+  Description      : %s
+  Firmware type    : %s
+  Firmware version : %i.%i.%i
+  Signature check  : %s
+  TLS Cert check   : %s
+  Compression      : %s
+********************************************
+)DBG_FMT";
+
+// Object to handle OTA updates
+esp32FOTA FOTA;
+
+// CryptoFileAsset *MyRootCA = new CryptoFileAsset( "/root_ca.pem", &LittleFS );
+// CryptoFileAsset *MyRootCA = new CryptoFileAsset( "/root_ca.pem", &SPIFFS );
+CryptoMemAsset *MyRootCA = new CryptoMemAsset("Certificates Chain", root_ca, strlen(root_ca) + 1);
+
+// CryptoFileAsset *MyRSAKey = new CryptoFileAsset( "/rsa_key.pub", &SPIFFS );
+// CryptoFileAsset *MyRSAKey = new CryptoFileAsset( "/rsa_key.pub", &LittleFS );
+// CryptoMemAsset *MyRSAKey = new CryptoMemAsset("RSA Public Key", pub_key, strlen(pub_key)+1 );
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Arduino_MQTT_Client.h>
+#include <ThingsBoard.h>  // ThingsBoard SDK
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+WiFiUDP ntpUDP;
+// You can specify the time server pool and the offset (in seconds, can be
+// changed later with setTimeOffset() ). Additionaly you can specify the
+// update interval (in milliseconds, can be changed using setUpdateInterval() ).
+//
+//tiempo UTC para tener hora local hy que modificar el
+// offset (0) con la función timeClient.setTimeOffset(long timeOffset)
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
+//NTPClient timeClient(ntpUDP);
+
+//needed for library for autoconnect
+#include <DNSServer.h>
+#include <WebServer.h>
+//Debug level for WiFiManager
+#define WM_DEBUG_LEVEL 1
+#include <WiFiManager.h>
+
+// These values are only relevant for the first run. After that the default values are
+// those persisted in the config file.
+// If the sw_server is empty the sw will skip updates.
+#define SW_SERVER "raw.githubusercontent.com"
+// The json file contains the version available and the pointer to where the bin file is located
+// The sw will check the version compare it with the version in the actual sw and update if necessary.
+#define SW_FILE "/jtxi123/CaeliA-Rivas/main/FotaRivas/fota.json"
+
+// This levels can be changed using the RPC call
+#define WARN 700;
+#define DANGER 1000;
+
+// Variables to store credentials in case we need to reconnect
+char ap_ssid[40];  //to store the wifi ap name
+char ap_pass[40];  //to store the wifi ap password
+// directive foor CO2 sensors
+// The SW will check which sensor is present. If the definition is commented
+// The SW will not check for its presence
+#define MHZ19_CO2
+#define CM1106_CO2
+// If RPC is commented the device will not support RPC
+#define RPC
+// device has SSD1306 128x64 display
+// If DISPLAY is defined the device will check for the presence of a display
+// and will use it if present.
+#define DISPLAY
+
+#define BAUDRATE 9600  // Device to CO2 sensor Serial baudrate (should not be changed)
+#define RX_PIN 19      // Rx pin which the CO2 Sensor Tx pin is attached
+#define TX_PIN 18      // Tx pin which the CO2 Sensor Rx pin is attached
+
+#ifdef MHZ19_CO2
+#include "MHZ19.h"
+#define RANGE_Z19 5000  // Range for MHZ19 CO2 readings
+MHZ19 myMHZ19;          // Constructor for library
+#endif
+
+#ifdef CM1106_CO2
+#include "CM1106.h"  //Using CM1106 Sensor
+CM1106 myCM1106;     //Constructor for library
+#endif
+
+typedef enum SensorType {
+  NOSENSOR = 0,     //No CO2 sensor
+  MHZ19sensor = 1,  // MHZ19 sensor
+  CM1106sensor = 2  // CM1106 sensor
+} SensorType;
+SensorType co2Sensor = NOSENSOR;
+
+// Just as with the CO2 sensor both types of temperature and humidity sensors
+// can be defined. The SW will check which one is present.
+#define DHT  //DHT temperature and hunidity sensor
+#ifdef DHT
+#include "DHTesp.h"
+DHTesp dht;
+// Comfort profile
+ComfortState cf;
+// Pin number for DHT11 data pin
+int dhtPin = 23;
+int dhtSensor = 0;
+#endif
+// BME280 temperature, humidity and pressure
+#define BME280
+#ifdef BME280
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#define SEALEVELPRESSURE_HPA (1013.25)
+Adafruit_BME280 bme;  // I2C
+int bmeSensor = 0;
+#endif
+#define DEFAULT_TEMP_OFFSET "-3.5"
+
+
+#ifndef ESP32
+#pragma message(THIS EXAMPLE IS FOR ESP32 ONLY !)
+#error Select ESP32 board.
+#endif
+// Wire library to support I2C bus
+#include <Wire.h>
+#define I2C_SDA 5
+#define I2C_SCL 4
+
+#ifdef DISPLAY
+#include <Adafruit_SSD1306.h>
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+//#define I2C_SDA 21
+//#define I2C_SCL 22
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
+#define OLED_RESET -1     // Reset pin # (or -1 if sharing Arduino reset pin)
+
+//Create the display object
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+//Bitmap Icons for display
+#define wifi1_icon16x16_width 16
+#define wifi1_icon16x16_height 16
+//variable to register the detection of a display at address 0x3C
+bool displayPresent = false;  // Variable to annotate if disply was detected
+const unsigned char wifi_icon16x2[][2] = {
+  0b11111111, 0b11111111,  // ################
+  0b00000000, 0b00000000,  //
+  0b01111111, 0b11111110,  //  ##############
+  0b00000000, 0b00000000,  //
+  0b00111111, 0b11111100,  //   ############
+  0b00000000, 0b00000000,  //
+  0b00011111, 0b11111000,  //    ##########
+  0b00000000, 0b00000000,  //
+  0b00001111, 0b11110000,  //     ########
+  0b00000000, 0b00000000,  //
+  0b00000111, 0b11100000,  //      ######
+  0b00000000, 0b00000000,  //
+  0b00000011, 0b11000000,  //       ####
+  0b00000000, 0b00000000,  //
+  0b00000001, 0b10000000,  //        ##
+  0b00000000, 0b00000000,  //
+};
+
+#define arrow_up_icon16x16_width 16
+#define arrow_up_icon16x16_height 16
+const unsigned char arrow_up_icon16x16[] = {
+  0b00000001, 0b10000000,  //        ##
+  0b00000011, 0b11000000,  //       ####
+  0b00000111, 0b11100000,  //      ######
+  0b00001111, 0b11110000,  //     ########
+  0b00011110, 0b01111000,  //    ####  ####
+  0b00111100, 0b00111100,  //   ####    ####
+  0b01111000, 0b00011110,  //  ####      ####
+  0b11111100, 0b00111111,  // ######    ######
+  0b11111100, 0b00111111,  // ######    ######
+  0b01111100, 0b00111110,  //  #####    #####
+  0b00011100, 0b00111000,  //    ###    ###
+  0b00011100, 0b00111000,  //    ###    ###
+  0b00011100, 0b00111000,  //    ###    ###
+  0b00011111, 0b11111000,  //    ##########
+  0b00011111, 0b11111000,  //    ##########
+  0b00001111, 0b11110000,  //     ########
+};
+
+#define cancel_icon16x16_width 16
+#define cancel_icon16x16_height 16
+const unsigned char cancel_icon16x16[] = {
+  0b00000000, 0b00000000,  //
+  0b00000000, 0b00000000,  //
+  0b00111000, 0b00001110,  //   ###       ###
+  0b00111100, 0b00011110,  //   ####     ####
+  0b00111110, 0b00111110,  //   #####   #####
+  0b00011111, 0b01111100,  //    ##### #####
+  0b00001111, 0b11111000,  //     #########
+  0b00000111, 0b11110000,  //      #######
+  0b00000011, 0b11100000,  //       #####
+  0b00000111, 0b11110000,  //      #######
+  0b00001111, 0b11111000,  //     #########
+  0b00011111, 0b01111100,  //    ##### #####
+  0b00111110, 0b00111110,  //   #####   #####
+  0b00111100, 0b00011110,  //   ####     ####
+  0b00111000, 0b00001110,  //   ###       ###
+  0b00000000, 0b00000000,  //
+};
+#endif
+
+
+
+// Helper macro to calculate array size
+#define COUNT_OF(x) ((sizeof(x) / sizeof(0 [x])) / ((size_t)(!(sizeof(x) % sizeof(0 [x])))))
+
+char token[40];
+// ThingsBoard server instance.
+//#define THINGSBOARD_SERVER "thingsboard.cloud"
+#define THINGSBOARD_SERVER  "demo.thingsboard.io"
+//#define THINGSBOARD_SERVER  "192.168.1.100"
+#define TELEMETRY_TOPIC "v1/devices/me/telemetry"
+#define THINGSBOARD_PORT "1883"
+
+// Baud rate for debug serial console
+#define SERIAL_DEBUG_BAUD 115200
+
+#define MAX_KEYS 20      //Maximum number of Telemetry key-value pairs
+#define NO_KEY ""        //empty key tag name
+#define DISPLAY_LINES 8  //Number of lines on display
+
+
+// Create the ThingsBoard client
+WiFiClient espClient;
+// Initialize ThingsBoard instance
+Arduino_MQTT_Client mqttClient(espClient);
+constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
+ThingsBoard tb(mqttClient, MAX_MESSAGE_SIZE);
+// the Wifi radio's status
+int wifiStatus = WL_IDLE_STATUS;
+
+DynamicJsonDocument configJson(1024);  //json document to store config parameters
+
+//Temperature Offset
+float Toffset = 0;
+
+//Pins to control the LEDs
+#ifdef MINID1
+#define RED 17
+#define YELLOW 21
+#define GREEN 25
+#else
+#define RED 15
+#define YELLOW 2
+#define GREEN 0
+#endif
+
+// Array with LEDs that should be controlled from ThingsBoard
+uint8_t leds_control[] = { RED, YELLOW, GREEN };
+
+#ifdef MINID1
+#define PIN_CONFIGURE 25  //Pin used to force configuration at boot
+#else
+#define PIN_CONFIGURE 3  //Pin used to force configuration at boot
+#endif
+
+#define PIN_BOOT 0
+// global timeStamp variables
+unsigned long current_time;
+unsigned long last_time;
+unsigned long display_time;
+unsigned long start_time;  //record the initial millis() to wait for sensor stabilization
+unsigned long bootTimeStamp;
+
+struct CONNECTION {
+  bool wifi = false;
+  int wifiStrength = 0;
+  bool mqtt = false;
+  bool rpc = false;
+} connStatus;
+
+
+#ifdef RPC
+// Set to true if application is subscribed for the RPC messages.
+bool subscribed = false;
+
+// Watchdog if the system is a long time with no connection it will reboot
+#define TWD 3600  // 1 hour
+//#define TWD 1000 // 1000 sec
+//#define TWD 0 // Disable watchdog
+const unsigned long wdtTimeout = 1000 * TWD;  //time in ms to trigger the watchdog
+hw_timer_t *timer = NULL;
+// In the case of watchdog interrupt, this function is called
+void IRAM_ATTR resetModule() {
+  ets_printf("reboot\n");  // When called it reboots
+  esp_restart();
+}
+// Take measurements of the Wi-Fi strength and return the average result.
+//int fake = 0;
+int getStrength(bool raw = false) {
+  int rssi = 0;
+  int strength = 0;
+  rssi = WiFi.RSSI();
+  if (!raw) {
+    if (rssi > -55) strength = 7;
+    else if (rssi > -59) strength = 6;
+    else if (rssi > -63) strength = 5;
+    else if (rssi > -67) strength = 4;
+    else if (rssi > -71) strength = 3;
+    else if (rssi > -75) strength = 2;
+    else if (rssi > -79) strength = 1;
+    //strength = fake++ % 8;
+    DBG_INFO("WiFi level: %i", strength);
+  } else strength = rssi;
+  return strength;
+}
+
+// Check for software updates
+// The function execHTTPcheck reads the json document in the sw_server
+// and checks if therere is a higher firmware version available.
+// in such case it executes the execOTA function that downloads and installs
+// the new version.
+unsigned long last_m = 0;
+#define UPDATE_PERIOD 60  //seconds
+void updateFW(bool force = false) {
+  unsigned long current_m;
+
+  current_m = millis();
+  if (last_m == 0) last_m = current_m;  //first execution
+  if ((current_m - last_m) / 1000 > UPDATE_PERIOD || force) {
+    // Try update only if server is defined
+    if (((const char *)(configJson["sw_server"]))[0]) {
+      DBG_INFO("Check for updates Current Type : %s  Version : %i.%i.%i", firmware_name, firmware_version_major, firmware_version_minor, firmware_version_patch);
+      DBG_INFO("Update url: %s", FOTA.getConfig().manifest_url);
+      if (FOTA.execHTTPcheck()) {
+#ifdef DISPLAY
+        if (displayPresent) {
+          display.setTextSize(2);
+          display.clearDisplay();
+          display.setCursor(0, 0);
+          display.println("Carga SW");
+          display.println("Espera");
+          display.display();
+        }
+#endif
+        FOTA.execOTA();
+      }
+    }
+    last_m = current_m;
+  }
+}
+
+
+// Processes functions for RPC calls
+// RPC_Data is a JSON variant, that can be queried using operator[]
+// See https://arduinojson.org/v5/api/jsonvariant/subscript/ for more details
+// Function to modify offset to adjust co2 measurments.
+int co2Offset = 0;
+RPC_Response processSetOffset(const RPC_Data &data) {
+  // Process data
+  co2Offset += int(data);  //Change co2 offset
+
+  DBG_INFO("Received the set offset RPC method");
+  DBG_INFO("Set new CO2_offset: %i", co2Offset);
+
+  return RPC_Response(NULL, co2Offset);
+}
+
+// Function to turn on or off auto calibration.
+RPC_Response processAutoCalibration(const RPC_Data &data) {
+  DBG_INFO("Set auto calibration");
+  configJson["auto_calibration"] = bool(data);
+  saveConfigFile(configJson);
+#ifdef MHZ19_CO2
+  if (co2Sensor == MHZ19sensor) {
+
+    myMHZ19.autoCalibration(bool(configJson["auto_calibration"]));
+    // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
+    myMHZ19.setRange(RANGE_Z19);
+  }
+#endif
+#ifdef CM1106_CO2
+  if (co2Sensor == CM1106sensor) {
+    myCM1106.autoCalibration(bool(configJson["auto_calibration"]), 7);
+  }
+#endif
+  return RPC_Response("AutoCalibration", bool(configJson["auto_calibration"]));
+}
+// This flag will be raised if calibration is requested.
+// it will be reset after calibration
+bool calibrationFlag;
+RPC_Response processCalibration(const RPC_Data &data) {
+  calibrationFlag = true;
+  DBG_INFO("Received the calibration RPC command");
+  DBG_INFO("Set the calibration flag: %i", calibrationFlag);
+  return RPC_Response("calibration", calibrationFlag);
+}
+
+// Function to receive a message with a severity level.
+String userMessage = "";
+int messageLevel = 0;
+RPC_Response processUserMessage(const RPC_Data &data) {
+  const char *message;
+
+  DBG_INFO("Received the get userMessage method");
+
+  message = data["message"];
+  userMessage = String(message);
+  messageLevel = data["level"];
+
+  DBG_INFO("Mensaje: %s Nivel: %i", message, messageLevel);
+
+  return RPC_Response("message", message);
+}
+
+// Function to control leds
+// when led_state ==1 led will light in accordance with the CO2 level
+// when led_state ==2 led is always on
+// when led_state ==0 the led is always off
+
+int led_state[3] = { 1, 1, 1 };
+
+RPC_Response processSetLedState(const RPC_Data &data) {
+  Serial.println("Received the set setLedState RPC method");
+  serializeJson(data, Serial);
+  int led = data["led"];
+  int enabled = data["enabled"];
+
+  if (led < COUNT_OF(leds_control)) {
+
+    DBG_INFO("Setting LED %i  (GPIO%i) to state %i", led, leds_control[led], enabled);
+    led_state[led] = enabled;
+    if (enabled == 2) digitalWrite(leds_control[led], 1);
+    if (enabled == 0) digitalWrite(leds_control[led], 0);
+  }
+  //return RPC_Response(data["led"], enabled);
+  return RPC_Response("enabled", enabled);
+}
+
+int level_warn = WARN;
+int level_danger = DANGER;
+
+RPC_Response processSetWarnings(const RPC_Data &data) {
+  Serial.println("Received the set setWarnings RPC method");
+
+  level_warn = data["warning"];
+  level_danger = data["danger"];
+
+  DBG_INFO("Setting Warning levels");
+  DBG_INFO("From 0 to %i ppm good", level_warn);
+  DBG_INFO("From %i to %i ppm fair", level_warn + 1, level_danger);
+  DBG_INFO("Above %i  ppm danger", level_danger);
+
+  return RPC_Response("warning", level_warn);
+}
+RPC_Response processUpdateFirmware(const RPC_Data &data) {
+  DBG_INFO("Received the set updateFirmware RPC method");
+  configJson["sw_server"] = data["sw_server"];
+  configJson["sw_file"] = data["sw_file"];
+  saveConfigFile(configJson);
+  updateFW(true);
+
+  return RPC_Response("update", false);
+}
+RPC_Response processUpdateParameters(const RPC_Data &data) {
+  DBG_INFO("Received the set updateParameters RPC method");
+  // update only the parametes included in the call
+  JsonObjectConst parameters = data;
+  for (auto p : parameters) {
+    DBG_INFO("key: %s value: %4.1f", p.key().c_str(), float(p.value()));
+    configJson[p.key()] = p.value();
+  }
+  saveConfigFile(configJson);  //save the configuration file
+  esp_restart();               //reboot
+
+  //This line will only be excuted if the firmware update fails
+  return RPC_Response("parameters", false);
+}
+
+RPC_Response processStatus(const RPC_Data &data) {
+
+  char status[45];
+
+  DBG_INFO("Received the status RPC command");
+
+  if (data) {
+    if ((const char *)data == 0) {
+      snprintf(status, sizeof(status), "Uptime: %us, Ver: %i.%i.%i", (millis() - start_time) / 1000, firmware_version_major, firmware_version_minor, firmware_version_patch);
+      return RPC_Response("status", (const char *)status);
+    } else {
+      return RPC_Response((const char *)data, (const char *)configJson[(const char *)data]);
+    }
+  } else {
+    snprintf(status, sizeof(status), "Uptime: %us, Ver: %i.%i.%i", (millis() - start_time) / 1000, firmware_version_major, firmware_version_minor, firmware_version_patch);
+    return RPC_Response("status", (const char *)status);
+  }
+}
+// RPC handlers for RPC
+const std::vector<RPC_Callback> callbacks = {
+  { "setOffset", processSetOffset },
+  { "calibration", processCalibration },
+  { "autoCalibration", processAutoCalibration },
+  { "userMessage", processUserMessage },
+  { "setLedState", processSetLedState },
+  //{"setWarnings",       processSetWarnings },
+  { "updateFirmware", processUpdateFirmware },
+  { "updateParameters", processUpdateParameters },
+  { "status", processStatus }
+};
+#endif
+
+// This measurments period MEAS_PERIOD in seconds
+
+#define MEAS_PERIOD 20
+
+// This is the period the disply remains ON in seconds
+#define WAKE_PERIOD 600
+
+
+#define WARMUPTIME 60
+
+
+//  Task to reads & precess measurements from sensors
+
+//Telemetry Json document
+StaticJsonDocument<128> telemetry;
+void measTask() {
+  DBG_INFO("measTask started");
+  if (ESP.getFreeHeap() < 10000) esp_restart();  //There are some memory leaks
+  DBG_INFO("Memoria libre: %u", ESP.getFreeHeap());
+  telemetry.clear();  //clear the telemetry JsonDocument
+  readMeasurement(telemetry);
+  publishMeasurement(telemetry);
+  displayMeasurement(telemetry);
+  showLeds(telemetry);
+  calibration();
+  DBG_INFO("measTask ended");
+}
+
+
+void calibration()  //Calibrate if needed
+{
+  if (calibrationFlag) {
+#ifdef MHZ19_CO2
+    if (co2Sensor == MHZ19sensor) {
+      //Check if a calibration is needed
+      myMHZ19.calibrate();
+      myMHZ19.autoCalibration(bool(configJson["auto_calibration"]));
+      // set Range to RANGE_Z19 using a function, see below (disabled as part of calibration)
+      myMHZ19.setRange(RANGE_Z19);
+    }
+#endif
+#ifdef CM1106_CO2
+    if (co2Sensor == CM1106sensor) {
+      //Check if a calibration is needed
+      myCM1106.calibrate();
+      myCM1106.autoCalibration(bool(configJson["auto_calibration"]), 7);
+    }
+#endif
+    display.setTextSize(2);
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Calibrate");
+    display.println("CO2 sensor");
+    display.setTextSize(1);
+    display.display();
+    //reset offset and flag
+    co2Offset = 0;
+    calibrationFlag = false;
+  }
+}
+
+
+//  Reads data from sensors
+int last_co2 = 0;
+int delta_co2 = 10;
+int last_humidity = 0;
+int delta_h = 1;
+float last_pressure = 0;
+float delta_p = 10;
+float last_temperature = 0;
+float delta_t = 0.5;
+int wifi_db;
+int last_wifi = -99;
+int delta_w = 2;
+int co2_ppm;  //concertration of CO2
+float temperature;
+int humidity;
+float pressure;
+float co2_t;  //Temperature of the sensor (not very accurate as sensor generates heat)
+
+void readMeasurement(JsonDocument &telemetry) {
+  timeClient.update();
+  unsigned long long ts;
+  char ts_str[20];
+  JsonObject tm = telemetry.to<JsonObject>();
+  ts = timeClient.getEpochTime();
+  ts = ts * 1000;  // in ms? UTC
+  // we have to convert the ts to a string because the Json serialize arduino
+  // function will not handle long long types
+  sprintf(ts_str, "%llu", ts);
+  tm["ts"] = ts_str;
+  JsonObject values = tm.createNestedObject("values");
+#ifdef MHZ19_CO2
+  if (co2Sensor == MHZ19sensor) {
+    // note: getCO2() default is command "CO2 Unlimited". This returns the correct CO2 reading even
+    // if below background CO2 levels or above range (useful to validate sensor). You can use the
+    // usual documented command with getCO2(false)
+
+    co2_ppm = co2Offset + myMHZ19.getCO2();  // Request CO2 (as ppm) unlimimted value, new request
+    co2_t = myMHZ19.getTemperature(true);    // decimal value, not new request
+    //co2_t = myMHZ19.getTempAdjustment();   // adjusted temperature
+
+    if (abs(co2_ppm - last_co2) > delta_co2) {
+      values["co2_ppm"] = co2_ppm;
+      last_co2 = co2_ppm;
+    }
+  }
+#endif
+#ifdef CM1106_CO2
+  if (co2Sensor == CM1106sensor) {
+    co2_ppm = co2Offset + myCM1106.getCO2();  // Request CO2 (as ppm) unlimimted value, new request
+    if (abs(co2_ppm - last_co2) > delta_co2) {
+      values["co2_ppm"] = co2_ppm;
+      last_co2 = co2_ppm;
+    }
+  }
+#endif
+
+#ifdef DHT
+  if (dhtSensor) {
+    TempAndHumidity newValues;
+    float heatIndex = -99;
+    float dewPoint = -99;
+    float cr = -99;
+
+    // Reading temperature for humidity takes about 250 milliseconds!
+    // Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
+    // Check if any reads failed and exit early (to try again).
+    if (dht.getStatus()) {
+      DBG_ERROR("DHT11 error status : %s", dht.getStatusString());
+    } else {
+      newValues = dht.getTempAndHumidity();
+
+
+      //record key value pairs on the measurementes array (to be published)
+      temperature = newValues.temperature + Toffset;
+      if (abs(temperature - last_temperature) > delta_t) {
+        values["temperature"] = temperature;
+        last_temperature = temperature;
+      }
+
+      humidity = adjRH(values["temperature"], newValues.humidity, Toffset);
+      if (abs(humidity - last_humidity) > delta_h) {
+        values["humidity"] = humidity;
+        last_humidity = humidity;
+      }
+    }
+  }
+#endif
+#ifdef BME280
+  if (bmeSensor) {
+    temperature = bme.readTemperature() + Toffset;
+    if (abs(temperature - last_temperature) > delta_t) {
+      values["temperature"] = temperature;
+      last_temperature = temperature;
+    }
+    pressure = bme.readPressure();
+    if (abs(pressure - last_pressure) > delta_p) {
+      values["pressure"] = pressure;
+      last_pressure = pressure;
+    }
+    humidity = adjRH(double(values["temperature"]), double(bme.readHumidity()), double(Toffset));
+    if (abs(humidity - last_humidity) > delta_h) {
+      values["humidity"] = humidity;
+      last_humidity = humidity;
+    }
+  }
+#endif
+#ifdef WIFI_TELEMETRY
+  wifi_db = getStrength(true);
+  if (abs(wifi_db - last_wifi) > delta_w) {
+    values["wifi_db"] = wifi_db;
+    last_wifi = wifi_db;
+  }
+#endif
+}
+
+double adjRH(double tempAdjusted, double RH, double tempOffset) {
+  double LRV, Temp, T0, E0, Es, Esadjusted, RHadjusted;
+  LRV = 5423;   //K
+  T0 = 273.15;  //K
+  //E0 = 0.611; //kPa
+  RH = RH / 100;
+  tempAdjusted = tempAdjusted + T0;
+  //Es = E0 * exp(LRV * (1 / T0 - 1 / Temp));
+  Temp = tempAdjusted - tempOffset;
+  //Esadjusted = E0 * exp(LRV * (1 / T0 - 1 / tempAdjusted));
+  //RHadjusted = RH * Esadjusted / Es;
+  RHadjusted = RH * exp(LRV * (1 / tempAdjusted - 1 / Temp));
+  DBG_VERBOSE("RH %.1f%%, RH adj %.1f%%, Temp %.1f, Delta T %.1f",
+              RH * 100, RHadjusted * 100, tempAdjusted, tempOffset);
+  return RHadjusted * 100;
+}
+
+//  Publishes the measurements to the mqtt broker
+bool publishMeasurement(JsonDocument &telemetry) {
+  DBG_INFO("Start publishing");
+  JsonObject values = telemetry["values"];
+  for (JsonPair p : values) {
+    DBG_INFO("key: %s value: %4.1f", p.key().c_str(), float(p.value()));
+  }
+  if (checkConnection()) {
+    char telemetry_str[200];
+    serializeJson(values, telemetry_str);
+    DBG_VERBOSE(telemetry_str);
+    tb.sendTelemetryJson((const char *)telemetry_str);
+    return true;
+  } else return false;
+}
+//Function to display the measurements of the measuments array
+
+void displayMeasurement(JsonDocument &telemetry) {
+#ifdef DISPLAY
+  if (displayPresent) {
+    int lines = DISPLAY_LINES - 1;  // do not overflow display
+    char line[20];
+    display.clearDisplay();
+    display.setTextSize(2);
+    JsonObject values = telemetry["values"];
+    lines /= 2;
+    if (MAX_KEYS < lines) lines = MAX_KEYS;
+    //display.clearDisplay();
+    display.setCursor(0, 0);  //top left
+    int j = 0;
+    if (j < lines) {
+      snprintf(line, sizeof(line), "CO2: %i", co2_ppm);
+      display.println(line);
+      j++;
+    }
+    if (j < lines) {
+      snprintf(line, sizeof(line), "Hum: %-2.0f", float(humidity));
+      display.println(line);
+      j++;
+    }
+    if (j < lines) {
+      snprintf(line, sizeof(line), "Tem: %-2.1f", temperature);
+      display.println(line);
+      j++;
+    }
+    if (connStatus.wifi) {
+      display.drawBitmap(display.width() - 16, 16 - (connStatus.wifiStrength + 1) * 2,
+                         wifi_icon16x2[16 - (connStatus.wifiStrength + 1) * 2], 16, (connStatus.wifiStrength + 1) * 2, 1);
+      //display.setCursor(display.width() - 16, 16);
+      //display.printf("%1i", connStatus.wifiStrength);
+    } else display.drawBitmap(display.width() - 16, 0, cancel_icon16x16, 16, 16, 1);
+    if (connStatus.mqtt) display.drawBitmap(display.width() - 16, 20, arrow_up_icon16x16, 16, 16, 1);
+    else display.drawBitmap(display.width() - 16, 20, cancel_icon16x16, 16, 16, 1);
+    display.setTextSize(1);
+    display.setCursor(0, (DISPLAY_LINES - 1) * 8);  //last row
+    if (userMessage != "") display.println(userMessage);
+    else display.println(token);
+    display.display();
+  }
+#endif
+}
+bool displayState = true;
+//Activate leds
+void showLeds(JsonDocument &telemetry) {
+  //when enabled==1
+  //led 0 lights if co2 value is above danger level (red)
+  //led 1 lights if co2 is in between warning and danger levels (yellow)
+  //led 2 lights if co2 is below warning level (green)
+  //when enabled==0 led is off
+  //when enabled==2 led is on
+
+  DBG_VERBOSE("Levels warn: %i danger: %i Current CO2 level: %i ppm", level_warn, level_danger, co2_ppm);
+  //turn off all leds
+  for (int i = 0; i < 3; i++) digitalWrite(leds_control[i], 0);  //turn off all leds
+  DBG_DEBUG("turn off all leds");
+  if (displayState) {
+    //turn on the level led
+    if (co2_ppm <= level_warn) {
+      DBG_DEBUG("Safe GREEN");
+      digitalWrite(leds_control[2], 1);
+    } else if ((co2_ppm <= level_danger)) {
+      DBG_DEBUG("Warning Yellow");
+      digitalWrite(leds_control[1], 1);
+    } else {
+      DBG_DEBUG("Danger RED");
+      digitalWrite(leds_control[0], 1);
+    }
+    // If forced on or off
+    for (int i = 0; i < 3; i++) {
+      if (led_state[i] == 0) {
+        DBG_DEBUG("Force off led: %i", i);
+        digitalWrite(leds_control[i], 0);
+      } else if (led_state[i] == 2) {
+        DBG_DEBUG("Force on led: %i", i);
+        digitalWrite(leds_control[i], 1);
+      }
+    }
+  }
+}
+bool shouldSaveConfig = false;  //flag is changed by Callback function
+
+//callback notifying us of the need to save config
+void saveConfigCallback() {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
+// obtain unique token for ESP32
+void getToken() {
+  // Compose TOKEN using chip id (mac address)
+  uint64_t chipid;
+  chipid = ESP.getEfuseMac();
+  uint16_t chip = (uint16_t)(chipid >> 32);
+  snprintf(token, sizeof(token), "CaeliA-%04X%08X", chip, (uint32_t)chipid);
+}
+
+//The configuration parameters are stored in the config.json file
+//in the the SPIF file system as a serialized json document.
+//The function readd the configuration file into a json document
+bool readConfigFile(JsonDocument &doc) {
+  bool success = true;
+  //DynamicJsonDocument doc(1024);
+  DBG_INFO("mounting FS...");
+  if (SPIFFS.begin()) {
+    DBG_DEBUG("mounted file system");
+    if (SPIFFS.exists("/config.json")) {
+      //file exists, reading and loading
+      DBG_INFO("reading config file");
+      File configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) {
+        DBG_DEBUG("opened config file");
+        deserializeJson(doc, configFile);
+        serializeJson(doc, Serial);
+        Serial.println();
+        configFile.close();
+      }
+    }
+  } else {
+    DBG_ERROR("failed to mount FS...formatting and remount");
+    SPIFFS.format();
+    if (SPIFFS.begin()) DBG_INFO("mounting FS...");
+    else DBG_ERROR("failed to mount FS... HW problem");
+    success = false;
+  }
+  //end read
+  return success;
+  //return doc;
+}
+
+//write the configuration file from a json document
+bool saveConfigFile(JsonDocument &doc) {
+  bool success = true;
+  DBG_INFO("saving config");
+  //DynamicJsonDocument doc(1024);
+
+  File configFile = SPIFFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("failed to open config file for writing");
+    success = false;
+  }
+  serializeJson(doc, Serial);
+  Serial.println();
+  serializeJson(doc, configFile);
+  configFile.close();
+  //end save
+  return success;
+}
+
+WiFiManager wm;
+void InitWiFi() {
+  char mqtt_server[40];
+  char mqtt_port[8];
+  char telemetry_topic[40];
+  char sw_server[40];
+  char sw_file[60];
+  char temp_offset[8];
+  getToken();
+  //WiFiManager
+  //set config save notify callback
+  wm.setSaveConfigCallback(saveConfigCallback);
+
+  //fetches ssid and pass from eeprom and tries to connect
+  //if it does not connect it starts an access point with the specified name
+  //and goes into a blocking loop awaiting configuration
+  pinMode(PIN_CONFIGURE, INPUT);  //configure button to enable user to force the access point
+#ifdef DISPLAY
+  if (displayPresent) {
+    display.setTextSize(2);
+    display.println("Pulse para");
+    display.println("configurar");
+    display.display();
+    delay(5000);  //wait 5 seconds to allow user to press the button
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    //display.println("Start");
+    display.println("CaeliaAp");
+    display.display();
+    display.setTextSize(1);
+  } else delay(5000);
+#endif
+
+  //clean FS, for testing
+  //SPIFFS.format();
+  //Serial.println("Formating FS...");
+
+  //read configuration from FS json
+
+  readConfigFile(configJson);
+  wm.preloadWiFi((const char *)configJson["ap_ssid"], (const char *)configJson["ap_pass"]);
+  if (!configJson["temp_offset"]) configJson["temp_offset"] = DEFAULT_TEMP_OFFSET;
+  //saveConfigFile(configJson);
+
+  wm.setConfigPortalTimeout(180);  //set 180s timeout for web portal
+  WiFiManagerParameter mqttServer("Server_name", "mqtt_server", (const char *)configJson["mqtt_server"], 40);
+  wm.addParameter(&mqttServer);
+  //WiFiManagerParameter mqttPort("Port_number", "mqtt_port", (const char*)configJson["mqtt_port"], 6);
+  //wm.addParameter(&mqttPort);
+  //WiFiManagerParameter telemetryTopic("Telemetry", "Telemetry_topic", (const char*)configJson["telemetry_topic"], 40);
+  //wm.addParameter(telemetryTopic);
+  WiFiManagerParameter swServer("Update_host", "Update_Server", (const char *)configJson["sw_server"], 40);
+  wm.addParameter(&swServer);
+  WiFiManagerParameter swFile("Update_file", "Update_file", (const char *)configJson["sw_file"], 60);
+  wm.addParameter(&swFile);
+  WiFiManagerParameter tempOffset("Temp_offset", "Temp_offset", (const char *)configJson["temp_offset"], 6);
+  wm.addParameter(&tempOffset);
+  const char _customHtml_checkbox[] = "type = \"checkbox\"";
+  WiFiManagerParameter autoCalibrate("checkbox", " Disable Auto Calibration", " ", 2, _customHtml_checkbox);
+  wm.addParameter(&autoCalibrate);
+
+  std::vector<const char *> menu = { "wifi", "erase", "restart", "exit" };
+  wm.setMenu(menu);  // custom menu, pass vector
+
+  wm.setWiFiAutoReconnect(true);  //autoreconnect
+
+  DBG_INFO("Starting portal if needed");
+  if (displayPresent) {
+    display.println();
+    display.println("Please connect to: ");
+    display.println(token);
+    display.display();
+  }
+
+  wm.setConfigPortalTimeout(180);  //set timeout to 180s
+  wm.setConnectTimeout(60);
+  bool connected;
+  if (digitalRead(PIN_CONFIGURE)) {
+    if (!(connected = wm.autoConnect(token))) {
+      //wm.preloadWiFi("MiFibra-69A0", "cjFn5Q5J");
+#ifdef RIVAS
+      wm.preloadWiFi("Rivasciudad_InvitadosMAC", "");
+
+      connected = wm.autoConnect(token);
+#endif
+    }
+  } else {
+    Serial.println("Forced configuration");
+    SPIFFS.format();                          //clean FS
+    connected = wm.startConfigPortal(token);  //Forced ap (user action)
+  }
+
+  //save the custom parameters to FS (if shouldSaveConfig has beenchanged through the callback function)
+  if (shouldSaveConfig) {
+    DBG_INFO("Update file: %s", sw_file);
+    configJson.clear();  //Clear all previous values
+    strcpy(mqtt_server, mqttServer.getValue());
+
+    strcpy(sw_server, swServer.getValue());
+    strcpy(sw_file, swFile.getValue());
+    strcpy(temp_offset, tempOffset.getValue());
+
+    configJson["mqtt_server"] = mqtt_server;
+
+    configJson["sw_server"] = sw_server;
+    configJson["sw_file"] = sw_file;
+    configJson["temp_offset"] = temp_offset;
+
+    configJson["auto_calibration"] = (autoCalibrate.getValue()[0] == 'T') ? false : true;
+
+    DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
+    //saveConfigFile(configJson);
+  }
+  if (connected) {
+    //if you get here you have connected to the WiFi
+    DBG_INFO("connected...yeey : )");
+    //Save the credentials just in case we need to reconnect
+    strcpy(ap_ssid, wm.getWiFiSSID().c_str());
+    strcpy(ap_pass, wm.getWiFiPass().c_str());
+    configJson["ap_ssid"] = ap_ssid;
+    configJson["ap_pass"] = ap_pass;
+    saveConfigFile(configJson);
+  }
+  DBG_INFO("AutoCalibration: %s", autoCalibrate.getValue());
+  Serial.printf(fota_debug_fmt,
+                "3",
+                description,
+                firmware_name,
+                firmware_version_major,
+                firmware_version_minor,
+                firmware_version_patch,
+                check_signature ? "Enabled" : "Disabled",
+                disable_security ? "Disabled" : "Enabled",
+                FOTA.zlibSupported() ? "Enabled" : "Disabled");
+
+  {
+    auto cfg = FOTA.getConfig();
+    cfg.name = firmware_name;
+    static char fota_url[80];
+    sprintf(fota_url, "https://%s%s", (const char *)configJson["sw_server"], (const char *)configJson["sw_file"]);
+    DBG_INFO("FOTA_URL %s", fota_url);
+    cfg.manifest_url = fota_url;
+
+    cfg.sem = SemverClass(firmware_version_major, firmware_version_minor, firmware_version_patch);
+    cfg.check_sig = check_signature;
+    cfg.unsafe = disable_security;
+    cfg.root_ca = MyRootCA;
+    //cfg.pub_key      = MyRSAKey;
+    FOTA.setConfig(cfg);
+  }
+  FOTA.setRootCA(MyRootCA);
+  WiFi.setSleep(true);  //enable sleep mode
+}
+
+//Check wifi connection. If WIFI connection is down try to reconnect
+//and display icons on the screen to show the status of the wifi connection
+//and the thingsboard connection.
+bool checkConnection()
+// Check connection to Wifi and TB. If necessary reconnect
+{
+  bool success = true;  //succces retunt code
+  //Check if we are connected
+  if (WiFi.status() != WL_CONNECTED) {
+    DBG_INFO("Disconnected from AP");
+    WiFi.begin(ap_ssid, ap_pass);
+    connStatus.wifi = false;
+    connStatus.mqtt = false;
+    connStatus.rpc = false;
+    success = false;
+  } else {
+    connStatus.wifi = true;
+    connStatus.wifiStrength = getStrength(false);
+    DBG_INFO("WiFI Signal Strength: %i", getStrength(true));
+    // reset watchdog if we are connected
+    if (wdtTimeout) timerWrite(timer, 0);  //reset timer (feed watchdog);
+  }
+  if (success) {
+    // Reconnect to ThingsBoard, if needed
+    if (!tb.connected()) {
+      // reconnect to the ThingsBoard
+      DBG_INFO("Connecting to: %s with token: %s", (const char *)configJson["mqtt_server"], token);
+      if (!tb.connect(configJson["mqtt_server"], token)) {
+        DBG_WARNING("Failed to connect to ThingsBoard ");
+        connStatus.mqtt = false;
+        connStatus.rpc = false;
+      }
+#ifdef RPC
+      else {
+        connStatus.mqtt = true;
+        DBG_INFO("Subscribing for RPC...");
+        // Perform a subscription. All consequent data processing will happen in
+        // callbacks as denoted by callbacks[] array.
+        if (!tb.RPC_Subscribe(callbacks.begin(), callbacks.end())) {
+          DBG_WARNING("Failed to subscribe for RPC");
+          success = false;
+          connStatus.rpc = false;
+        } else {
+          DBG_INFO("Subscribe done");
+          connStatus.rpc = true;
+        }
+      }
+#endif
+    } else connStatus.mqtt = true;
+  }
+  return success;
+}
+
+HardwareSerial mySerial(1);  // ESP32 serial port to communicate with sensor
+
+// Setup procedure
+void setup() {
+  // Program the watchdog if wdtTimeout is not 0
+  if (wdtTimeout) {
+    timer = timerBegin(0, 8000, true);                //timer 0, demultiply by 8000 80Mhz clock = 0.1ms
+    timerAttachInterrupt(timer, &resetModule, true);  //attach callback
+    timerAlarmWrite(timer, wdtTimeout * 10, false);   //set time in units of 0.1 ms
+    timerAlarmEnable(timer);                          //enable interrupt
+  }
+  //initialize configuration doc with preset values
+  configJson["mqtt_server"] = THINGSBOARD_SERVER;
+  configJson["mqtt_port"] = THINGSBOARD_PORT;
+  configJson["telemetry_topic"] = TELEMETRY_TOPIC;
+  configJson["sw_server"] = SW_SERVER;
+  configJson["sw_file"] = SW_FILE;
+  configJson["temp_offset"] = DEFAULT_TEMP_OFFSET;
+
+  char myVersion[11];     // version for C02 sensor
+  start_time = millis();  //power on time
+  Serial.begin(SERIAL_DEBUG_BAUD);
+  Serial.flush();
+  DBG_INFO("Booting");
+  Wire.begin(I2C_SDA, I2C_SCL);
+#ifdef DISPLAY
+  Wire.beginTransmission(0x3C);
+  if (!Wire.endTransmission()) displayPresent = true;
+  if (displayPresent) {
+    DBG_INFO("SSD1306 Display present");
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {  // Address 0x3C for 128x32
+
+      DBG_ERROR("SSD1306 allocation failed");
+
+      for (;;)
+        ;  // Don't proceed, loop forever
+    }
+    display.setTextSize(3);               // Draw 3X-scale text
+    display.setTextColor(SSD1306_WHITE);  // Draw white text
+    display.clearDisplay();
+    display.setCursor(13, 0);  // Start at top-left corner
+    display.println("CaeliA");
+    display.display();
+    display.setTextSize(1);  // Normal 1:1 pixel scale
+  }
+#endif
+
+  InitWiFi();
+  if (WiFi.status() == WL_CONNECTED) {
+    updateFW(true);
+    timeClient.begin();
+    timeClient.update();
+    bootTimeStamp = timeClient.getEpochTime();
+    DBG_INFO("Boot time: %s UTC", timeClient.getFormattedTime());
+    Toffset = String((const char *)configJson["temp_offset"]).toFloat();
+    DBG_INFO("Offset Temp: %.1f ", Toffset);
+  }
+
+  // initialize control pins for leds
+  for (int i = 0; i < sizeof(leds_control); i++) pinMode(leds_control[i], OUTPUT);
+  mySerial.begin(BAUDRATE, SERIAL_8N1, RX_PIN, TX_PIN);  // device to CO2Sensor serial start
+  mySerial.flush();
+
+#ifdef CM1106_CO2
+  //check for CM1106
+  myCM1106.begin(mySerial);  // *Important, Pass your Stream reference
+  myVersion[0] = 0;
+  delay(5000);
+  if (myCM1106.getCO2()) co2Sensor = CM1106sensor;
+  //if (myVersion[0]) co2Sensor = CM1106sensor;
+  //co2Sensor = CM1106sensor;
+  if (co2Sensor == CM1106sensor) {
+    DBG_INFO("CM1106 Sensor detected");
+    delay(1000);
+    myCM1106.autoCalibration(bool(configJson["auto_calibration"]), 7);
+    delay(1000);
+    myCM1106.getVersion(myVersion);
+    DBG_VERBOSE("ProgrammID : ESP32_CM1106 Firmware Version : %s", myVersion);
+  }
+#endif
+#ifdef MHZ19_CO2
+  //check for MHZ19_CO2
+  myMHZ19.begin(mySerial);  // *Important, Pass your Stream reference
+  myVersion[0] = 0;
+  myMHZ19.getVersion(myVersion);
+  if (myVersion[0]) co2Sensor = MHZ19sensor;
+  if (co2Sensor == MHZ19sensor) {
+    DBG_INFO("MHZ19 Sensor detected");
+    //delay(5000);                   // Wait for sensor to stabilize
+    myMHZ19.autoCalibration(bool(configJson["auto_calibration"]));
+    setRange(RANGE_Z19);  // set Range 5000 using a function, see below (disabled as part of calibration)
+    //  Primary Information block
+    DBG_VERBOSE("ProgrammID : ESP32_MHZ19 Firmware Version : %c%c.%c%c", myVersion[0], myVersion[1], myVersion[2], myVersion[3]);
+    DBG_VERBOSE("Background CO2 : %i", myMHZ19.getBackgroundCO2());
+    DBG_VERBOSE("Temperature Cal : %4.1f", myMHZ19.getTempAdjustment());
+  }
+#endif
+
+#ifdef DHT
+  // Initialize temperature sensor
+  dht.setup(dhtPin, DHTesp::DHT11);
+  dht.getTempAndHumidity();
+  if (dht.getStatus()) {
+    DBG_DEBUG("DHT11 error status : %s", dht.getStatusString());
+    DBG_INFO("DHT not detected");
+    dhtSensor = 0;
+  } else {
+    dhtSensor = 1;
+    DBG_INFO("DHT initiated");
+  }
+#endif
+#ifdef BME280
+  if (!bme.begin(0x76, &Wire)) {
+    bmeSensor = 0;
+    DBG_INFO("BME280 sensor not detected");
+    //while (1); continue with no sensor
+  } else {
+    bmeSensor = 1;
+    DBG_INFO("BME280 sensor initialized");
+  }
+#endif
+
+#ifdef LP
+  setCpuFrequencyMhz(80);  //Set CPU clock to 80MHz to save power
+#endif
+  DBG_INFO("CPU Frequency : %i MHz", getCpuFrequencyMhz());  //Get CPU clock
+  //display.ssd1306_command(SSD1306_DISPLAYOFF);
+
+
+  last_time = millis();
+  display_time = millis();
+  //Initiallize measurement tasks
+  checkConnection();
+#ifdef DISPLAY
+  if (displayPresent) {
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.setTextSize(2);
+    display.println("Esperando medidas");
+    display.setTextSize(1);
+    display.display();
+  }
+#endif
+  //wait for warmup
+  if (millis() - start_time < WARMUPTIME * 1000) {
+    DBG_INFO("Waiting for : %i seconds for sensor warmup", (WARMUPTIME * 1000 - (millis() - start_time)) / 1000);
+    delay((WARMUPTIME * 1000 - (millis() - start_time)));
+  }
+  DBG_INFO("-----------Starting measurement cycle-------------------");
+}
+
+bool pressed = false;
+void loop() {
+  unsigned long current_time = millis();
+  if (current_time - last_time > MEAS_PERIOD * 1000) {
+    measTask();
+    DBG_VERBOSE("Enable sleep : %s", (WiFi.getSleep()) ? "True" : "False");
+    //WiFi.setSleep(true);
+    last_time = current_time;
+  }
+#ifdef LP
+  if (current_time - display_time > WAKE_PERIOD * 1000) {
+    displayState = false;
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+  }
+#endif
+  // Check if user presses the configure button in order to calibrate the device
+
+  if (!digitalRead(PIN_CONFIGURE)) {
+    display.ssd1306_command(SSD1306_DISPLAYON);
+    displayState = true;
+    //trigger calibration if button is pressed for more than 5 secs
+    if (pressed) {
+      if (current_time - display_time > 5000) calibrationFlag = true;
+    } else {
+      DBG_INFO("Config PIN pressed");
+      display_time = current_time;
+    }
+    pressed = true;
+  } else pressed = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    updateFW();  //check for sw updates
+#ifdef RPC
+    //check for incomming messages
+    if (connStatus.rpc) tb.loop();
+#endif
+  }
+
+  delay(100);
+  yield();
+}
+#ifdef MHZ19_CO2
+void setRange(int range) {
+  myMHZ19.setRange(range);                                                // request new range write
+  if ((myMHZ19.errorCode == RESULT_OK) && (myMHZ19.getRange() == range))  //RESULT_OK is an alias from the library,
+  {
+    DBG_INFO("Range : %i successfully applied.", range);  // Success
+  } else {
+    DBG_ERROR("Failed to set Range! Error Code : %i", myMHZ19.errorCode);  // Get the Error Code value
+  }
+}
+#endif
